@@ -1,0 +1,162 @@
+import os
+import json
+import google.generativeai as genai
+from dotenv import load_dotenv
+from exceptions import NotAnInvoiceError
+
+load_dotenv()
+
+# Configure Gemini
+api_key = os.getenv("GEMINI_API_KEY")
+if api_key:
+    genai.configure(api_key=api_key)
+
+def extract_invoice_details(ocr_text: str) -> dict:
+    """
+    Extracts structured GST invoice details from raw OCR text using Gemini.
+    
+    Input: Raw OCR text
+    Process: Gemini AI reads and understands the text, identifying vendor name,
+             GSTIN, line items, HSN codes, GST amounts, and total.
+    Output: Clean JSON with all bill fields structured.
+    """
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY not set in environment.")
+        
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    
+    prompt = f"""
+    Analyze the following raw OCR text from a bill/invoice and extract key structured fields.
+    Return a clean JSON object containing the following keys:
+    - is_invoice: true if this text is from a bill/invoice/receipt, false if it appears to be
+      something else (menu, letter, random text, selfie description, etc.)
+    - vendor_name: The name of the vendor (e.g. Pooja Decorative Plywoods)
+    - vendor_gstin: Vendor's GSTIN/UIN number
+    - invoice_number: Invoice number
+    - invoice_date: Invoice date (format as YYYY-MM-DD or keep original format if unsure)
+    - cgst: Total CGST amount (numeric, 0.0 if not present)
+    - sgst: Total SGST amount (numeric, 0.0 if not present)
+    - igst: Total IGST amount (numeric, 0.0 if not present)
+    - total_amount: Total bill amount (numeric, including GST)
+    - line_items: A list of objects, each containing:
+        - si_no: Serial number / serial ID (integer or string)
+        - description: Description of goods / services
+        - hsn_sac: HSN or SAC code (string or null)
+        - quantity: Quantity purchased (numeric or null)
+        - rate: Rate per unit (numeric or null)
+        - amount: Total amount for this item (numeric or null)
+        - gst_rate: GST rate applied to this item in percentage (numeric or null, e.g. 5, 12, 18, 28)
+        - gst_amount: GST amount for this item (numeric or null)
+
+    Raw OCR Text:
+    {ocr_text}
+    """
+    
+    response = model.generate_content(
+        prompt,
+        generation_config={"response_mime_type": "application/json"}
+    )
+    
+    try:
+        result = json.loads(response.text.strip())
+    except Exception as e:
+        # Fallback regex parsing if JSON format is wrapped/improper
+        import re
+        json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
+        if json_match:
+            try:
+                result = json.loads(json_match.group(0))
+            except Exception:
+                raise e
+        else:
+            raise e
+
+    # ── Non-bill photo gate ──────────────────────────────────────
+    if not result.get("is_invoice", True):
+        raise NotAnInvoiceError("The image does not appear to be a GST invoice.")
+
+    # Also catch cases where Gemini says is_invoice=true but every field is empty
+    has_vendor = bool(result.get("vendor_name"))
+    has_total  = bool(result.get("total_amount"))
+    has_gstin  = bool(result.get("vendor_gstin"))
+    if not has_vendor and not has_total and not has_gstin:
+        raise NotAnInvoiceError("No invoice fields could be identified in the image.")
+
+    return result
+
+if __name__ == "__main__":
+    import sys
+    from ocr import detect_text
+    
+    # Configure stdout to use UTF-8 if supported (useful on Windows consoles)
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+            
+    # Check if a file path is provided via command line arguments
+    if len(sys.argv) > 1:
+        image_path = sys.argv[1]
+    else:
+        # Default fallback test image
+        image_path = "bill_test.jpg"
+        if not os.path.exists(image_path):
+            image_path = os.path.join(os.path.dirname(__file__), "tests", "test_image.png")
+            
+    print(f"Running end-to-end OCR and extraction for: {image_path}...")
+    if not os.path.exists(image_path):
+        print(f"Error: File {image_path} not found.")
+        sys.exit(1)
+        
+    with open(image_path, "rb") as f:
+        bill_image_bytes = f.read()
+        
+    try:
+        # 1. OCR Step
+        ocr_text = detect_text(bill_image_bytes)
+        print("OCR Step completed successfully.")
+        
+        # 2. Extraction Step
+        print("Extracting structured details via Gemini AI...")
+        details = extract_invoice_details(ocr_text)
+        
+        print("\n--- Structured JSON Output ---")
+        print(json.dumps(details, indent=2))
+        print("------------------------------")
+        
+        # Print summary formatted as requested
+        vendor = details.get("vendor_name", "N/A")
+        items_count = len(details.get("line_items", []))
+        
+        def format_indian_currency(val):
+            if val is None:
+                return "N/A"
+            try:
+                # Convert to integer and round
+                val_int = int(round(float(val)))
+                s = str(val_int)
+                if len(s) <= 3:
+                    return s
+                last_three = s[-3:]
+                remaining = s[:-3]
+                out = []
+                while len(remaining) > 0:
+                    if len(remaining) >= 2:
+                        out.insert(0, remaining[-2:])
+                        remaining = remaining[:-2]
+                    else:
+                        out.insert(0, remaining)
+                        remaining = ""
+                return ",".join(out) + "," + last_three
+            except Exception:
+                return str(val)
+                
+        print(f"Vendor: {vendor}")
+        print(f"Items: {items_count}")
+        print(f"Total: Rs.{format_indian_currency(details.get('total_amount'))}")
+        print(f"IGST: Rs.{format_indian_currency(details.get('igst'))}")
+    except Exception as e:
+        print(f"Error: {e}")
+
+
