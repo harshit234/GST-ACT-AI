@@ -41,16 +41,6 @@ def get_or_create_merchant(client: Client, whatsapp_number: str, vendor_name: st
     print(f"Created new merchant: {merchant_id}")
     return merchant_id
 
-def normalize_invoice_number(inv_no: str) -> str:
-    """
-    Normalizes invoice number for duplicate detection.
-    Removes slashes, dashes, spaces and uppercases so that
-    PDP26-27-026, PDP/26-27/026, PDP26-27/026 all compare equal.
-    """
-    import re
-    if not inv_no:
-        return ""
-    return re.sub(r"[^A-Z0-9]", "", inv_no.upper())
 
 
 def save_invoice(invoice_data: dict, whatsapp_number: str) -> str:
@@ -87,24 +77,19 @@ def save_invoice(invoice_data: dict, whatsapp_number: str) -> str:
         "whatsapp_number": whatsapp_number,
     }
     
-    # Step 3: Duplicate check using normalized invoice number
-    # Gemini sometimes formats the same invoice number differently (PDP26-27-026 vs PDP/26-27/026)
-    # so we fetch all bills for this GSTIN and compare normalized forms.
-    vendor_gstin = bill_record.get("vendor_gstin")
-    invoice_number = bill_record.get("invoice_number")
-    if vendor_gstin and invoice_number:
-        normalized_new = normalize_invoice_number(invoice_number)
-        existing_bills = (
-            client.table("bills")
-            .select("id, invoice_number")
-            .eq("vendor_gstin", vendor_gstin)
-            .execute()
-        )
-        for existing in (existing_bills.data or []):
-            if normalize_invoice_number(existing.get("invoice_number", "")) == normalized_new:
-                existing_id = existing["id"]
-                print(f"Duplicate invoice detected (normalized match). Existing Bill ID: {existing_id}")
-                raise DuplicateInvoiceError(existing_id)
+    # Step 3: Fuzzy duplicate detection
+    # Instead of exact GSTIN matching (which fails on OCR errors like P→F),
+    # compare invoice number + amount + vendor name similarity (>80%).
+    from duplicate_detector import check_fuzzy_duplicate
+    existing_id = check_fuzzy_duplicate(
+        client=client,
+        invoice_number=bill_record.get("invoice_number", ""),
+        total_amount=float(bill_record.get("total_amount") or 0),
+        vendor_name=bill_record.get("vendor_name", ""),
+        whatsapp_number=whatsapp_number,
+    )
+    if existing_id:
+        raise DuplicateInvoiceError(existing_id)
 
     # Step 4: Insert bill into bills table
     print("Saving bill to Supabase...")

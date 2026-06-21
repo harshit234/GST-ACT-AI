@@ -37,8 +37,14 @@ def perform_vision_ocr(image_bytes: bytes) -> str:
 
 def perform_gemini_ocr(image_bytes: bytes) -> str:
     """Performs OCR using Gemini Multimodal fallback."""
-    if not api_key:
+    # Reload environment variables to catch runtime changes to the API key
+    load_dotenv(override=True)
+    current_key = os.getenv("GEMINI_API_KEY")
+    if not current_key:
         raise ValueError("GEMINI_API_KEY not set in environment.")
+    
+    # Configure/re-configure genai with the latest key
+    genai.configure(api_key=current_key)
         
     # Convert bytes to PIL Image
     image = Image.open(io.BytesIO(image_bytes))

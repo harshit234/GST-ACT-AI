@@ -16,3 +16,6 @@ logs.zip
 logs3.zip
 logs3/
 logs_extracted/
+webapp_logs.zip
+webapp_logs_extracted/
+scratch_test_verify.py

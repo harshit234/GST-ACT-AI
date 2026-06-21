@@ -2,7 +2,7 @@ import os
 import json
 import google.generativeai as genai
 from dotenv import load_dotenv
-from exceptions import NotAnInvoiceError
+from exceptions import NotAnInvoiceError, LowConfidenceError
 
 load_dotenv()
 
@@ -20,8 +20,14 @@ def extract_invoice_details(ocr_text: str) -> dict:
              GSTIN, line items, HSN codes, GST amounts, and total.
     Output: Clean JSON with all bill fields structured.
     """
-    if not api_key:
+    # Reload environment variables to catch runtime changes to the API key
+    load_dotenv(override=True)
+    current_key = os.getenv("GEMINI_API_KEY")
+    if not current_key:
         raise ValueError("GEMINI_API_KEY not set in environment.")
+        
+    # Configure/re-configure genai with the latest key
+    genai.configure(api_key=current_key)
         
     model = genai.GenerativeModel('gemini-2.5-flash')
     
@@ -30,6 +36,12 @@ def extract_invoice_details(ocr_text: str) -> dict:
     Return a clean JSON object containing the following keys:
     - is_invoice: true if this text is from a bill/invoice/receipt, false if it appears to be
       something else (menu, letter, random text, selfie description, etc.)
+    - low_confidence: true if you detect that:
+      a) The bill is handwritten (not printed) or a carbon copy.
+      b) The bill represents a credit/debit note.
+      c) The bill contains multiple different GST rates applied to items, freight/packing adjustments, or cess items.
+      d) The OCR text is cut off, blurry, garbled, or critical fields (like totals or vendor details) are missing/ambiguous.
+      Otherwise, set this to false. Prioritize accuracy and transparency; do not attempt to guess or extrapolate if information is missing or unclear.
     - vendor_name: The name of the vendor (e.g. Pooja Decorative Plywoods)
     - vendor_gstin: Vendor's GSTIN/UIN number
     - invoice_number: Invoice number
@@ -74,6 +86,10 @@ def extract_invoice_details(ocr_text: str) -> dict:
     # ── Non-bill photo gate ──────────────────────────────────────
     if not result.get("is_invoice", True):
         raise NotAnInvoiceError("The image does not appear to be a GST invoice.")
+
+    # ── Low confidence or unsupported format gate ────────────────
+    if result.get("low_confidence", False):
+        raise LowConfidenceError("Unable to process this bill completely. Please upload a clearer image or enter it manually.")
 
     # Also catch cases where Gemini says is_invoice=true but every field is empty
     has_vendor = bool(result.get("vendor_name"))

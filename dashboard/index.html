@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="GST ACT AI — Smart GST Management for Indian Small Merchants. Track bills, view GST summaries, and scan bills via WhatsApp." />
+  <title>GST ACT AI — Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css?v=2.0.3" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script>
+    /* ══ TWILIO WHATSAPP CONFIG ════════════════════════════════════════
+       Hardcoded Twilio WhatsApp sandbox number for direct connection.
+       Change TWILIO_WA_NUMBER to your production Twilio number if needed.
+    ══════════════════════════════════════════════════════════════════ */
+    window.TWILIO_WA_NUMBER  = '+14155238886';        // Twilio WhatsApp number
+    window.TWILIO_WA_LINK    = 'https://wa.me/14155238886'; // Direct wa.me link
+    window.TWILIO_WA_DISPLAY = '+1 (415) 523-8886';  // Formatted for display
+
+    /* Lightweight QR helper — draws from api.qrserver.com */
+    window.QRCode = {
+      toCanvas: async function(canvas, text, opts) {
+        const size = (opts && opts.width) || 200;
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            const ctx = canvas.getContext('2d');
+            canvas.width = size; canvas.height = size;
+            ctx.drawImage(img, 0, 0, size, size);
+            resolve();
+          };
+          img.onerror = reject;
+          img.src = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}&color=111827&bgcolor=ffffff&margin=2`;
+        });
+      }
+    };
+  </script>
+</head>
+
+<body>
+
+  <!-- ════════════════════════════════════════ AUTH ════ -->
+  <div id="auth-screen" class="auth-screen">
+
+    <!-- Login Page -->
+    <div id="login-page" class="auth-page active">
+      <div class="auth-container">
+        <div class="auth-logo-section">
+          <div class="auth-logo">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <rect width="48" height="48" rx="14" fill="#1a56db"/>
+              <rect x="10" y="28" width="5" height="8" rx="1" fill="white"/>
+              <rect x="18" y="22" width="5" height="14" rx="1" fill="white"/>
+              <rect x="26" y="18" width="5" height="18" rx="1" fill="white"/>
+              <rect x="34" y="14" width="5" height="22" rx="1" fill="#93c5fd"/>
+            </svg>
+          </div>
+          <h1 class="auth-brand">GST ACT AI</h1>
+          <p class="auth-tagline">Smart GST for Smart Merchants</p>
+        </div>
+        <div class="auth-card">
+          <h2 class="auth-title">Welcome Back 👋</h2>
+          <p class="auth-subtitle">Enter your WhatsApp number to sign in</p>
+          <div class="form-group">
+            <label class="form-label" for="phone-input">WhatsApp Number</label>
+            <div class="phone-input-wrapper">
+              <span class="phone-prefix">🇮🇳 +91</span>
+              <input type="tel" id="phone-input" class="form-input" placeholder="98765 43210"
+                maxlength="10" inputmode="numeric" />
+            </div>
+            <p class="form-hint">We'll send a one-time OTP via SMS to verify</p>
+          </div>
+          <button id="send-otp-btn" class="btn-primary btn-full" onclick="handleSendOtp()">
+            <span class="btn-text">Send OTP</span>
+            <svg class="btn-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M3 10H17M17 10L11 4M17 10L11 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <p class="auth-footer-text">By continuing, you agree to our <a href="#" class="auth-link">Terms of Service</a></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- OTP Page -->
+    <div id="otp-page" class="auth-page">
+      <div class="auth-container">
+        <div class="auth-logo-section">
+          <div class="auth-logo">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <rect width="48" height="48" rx="14" fill="#1a56db"/>
+              <rect x="10" y="28" width="5" height="8" rx="1" fill="white"/>
+              <rect x="18" y="22" width="5" height="14" rx="1" fill="white"/>
+              <rect x="26" y="18" width="5" height="18" rx="1" fill="white"/>
+              <rect x="34" y="14" width="5" height="22" rx="1" fill="#93c5fd"/>
+            </svg>
+          </div>
+          <h1 class="auth-brand">GST ACT AI</h1>
+        </div>
+        <div class="auth-card">
+          <div class="otp-icon">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="24" fill="#eff6ff"/>
+              <path d="M14 24C14 24 17 18 24 18C31 18 34 24 34 24C34 24 31 30 24 30C17 30 14 24 14 24Z" stroke="#1a56db" stroke-width="2"/>
+              <circle cx="24" cy="24" r="4" fill="#1a56db"/>
+            </svg>
+          </div>
+          <h2 class="auth-title">Enter OTP</h2>
+          <p class="auth-subtitle">6-digit code sent to<br/><strong id="otp-phone-display"></strong></p>
+          <div class="otp-inputs" id="otp-inputs">
+            <input type="text" class="otp-box" maxlength="1" inputmode="numeric" id="otp-0"/>
+            <input type="text" class="otp-box" maxlength="1" inputmode="numeric" id="otp-1"/>
+            <input type="text" class="otp-box" maxlength="1" inputmode="numeric" id="otp-2"/>
+            <input type="text" class="otp-box" maxlength="1" inputmode="numeric" id="otp-3"/>
+            <input type="text" class="otp-box" maxlength="1" inputmode="numeric" id="otp-4"/>
+            <input type="text" class="otp-box" maxlength="1" inputmode="numeric" id="otp-5"/>
+          </div>
+          <div class="otp-timer" id="otp-timer">Resend OTP in <span id="timer-count">30</span>s</div>
+          <button class="btn-ghost" id="resend-btn" style="display:none;" onclick="handleSendOtp(true)">Resend OTP</button>
+          <button id="verify-btn" class="btn-primary btn-full" onclick="handleVerifyOtp()">
+            <span class="btn-text">Verify &amp; Continue</span>
+            <svg class="btn-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M5 10L9 14L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <button class="btn-ghost btn-full" style="margin-top:8px;" onclick="showLoginPage()">← Change Number</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════ APP ═════ -->
+  <div id="app" class="app hidden">
+
+    <!-- Sidebar (Desktop) -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <svg width="36" height="36" viewBox="0 0 48 48" fill="none">
+            <rect width="48" height="48" rx="14" fill="#1a56db"/>
+            <rect x="10" y="28" width="5" height="8" rx="1" fill="white"/>
+            <rect x="18" y="22" width="5" height="14" rx="1" fill="white"/>
+            <rect x="26" y="18" width="5" height="18" rx="1" fill="white"/>
+            <rect x="34" y="14" width="5" height="22" rx="1" fill="#93c5fd"/>
+          </svg>
+          <div>
+            <span class="sidebar-brand">GST ACT AI</span>
+            <span class="sidebar-version">v2.0</span>
+          </div>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active" id="nav-bills" onclick="showPage('bills',this)">
+          <svg class="nav-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M4 4H16C16.55 4 17 4.45 17 5V17C17 17.55 16.55 18 16 18H4C3.45 18 3 17.55 3 17V5C3 4.45 3.45 4 4 4Z" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M7 8H13M7 11H13M7 14H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <span>My Bills</span>
+        </a>
+        <a href="#" class="nav-item" id="nav-summary" onclick="showPage('summary',this)">
+          <svg class="nav-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M2 14L7 9L11 13L18 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M14 6H18V10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>GST Summary</span>
+        </a>
+        <a href="#" class="nav-item" id="nav-privacy" onclick="showPage('privacy',this)">
+          <svg class="nav-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M10 2L3 5V10C3 14.14 5.97 17.98 10 19C14.03 17.98 17 14.14 17 10V5L10 2Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Privacy &amp; Trust</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="user-profile">
+          <div class="user-avatar" id="sidebar-avatar">RS</div>
+          <div class="user-info">
+            <span class="user-name" id="sidebar-name">Merchant</span>
+            <span class="user-phone" id="sidebar-phone">—</span>
+          </div>
+          <button class="logout-btn" onclick="logout()" title="Logout">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+              <path d="M13 3H17V17H13M9 14L13 10L9 6M13 10H3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+      <!-- ─── PAGE: MY BILLS ─── -->
+      <section id="page-bills" class="page active">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">My Bills</h1>
+            <p class="page-subtitle" id="bills-month-label">Loading...</p>
+          </div>
+          <div class="header-actions">
+            <button class="btn-icon-only" id="bills-refresh-btn" onclick="loadBillsPage(true)" title="Refresh">
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                <path d="M4 4C5.73 2.38 8.05 1.5 10.5 1.5C15.47 1.5 19.5 5.53 19.5 10.5C19.5 15.47 15.47 19.5 10.5 19.5C5.53 19.5 1.5 15.47 1.5 10.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                <path d="M4 9V4H9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="stats-grid" id="bills-stats-grid">
+          <div class="stat-card skeleton-loading">
+            <div class="stat-card-icon blue">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M4 4H16C16.55 4 17 4.45 17 5V17C17 17.55 16.55 18 16 18H4C3.45 18 3 17.55 3 17V5C3 4.45 3.45 4 4 4Z" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M7 8H13M7 11H13M7 14H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div class="stat-info">
+              <p class="stat-label">Total Bills</p>
+              <h3 class="stat-value" id="val-total-bills">—</h3>
+              <p class="stat-trend neutral" id="val-bills-trend">This month</p>
+            </div>
+          </div>
+          <div class="stat-card skeleton-loading">
+            <div class="stat-card-icon green">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M2 5H4L5.5 13H14.5L16 7H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle cx="7" cy="16" r="1.5" fill="currentColor"/>
+                <circle cx="13" cy="16" r="1.5" fill="currentColor"/>
+              </svg>
+            </div>
+            <div class="stat-info">
+              <p class="stat-label">Total Purchases</p>
+              <h3 class="stat-value" id="val-total-purchases">—</h3>
+              <p class="stat-trend positive">Incl. all taxes</p>
+            </div>
+          </div>
+          <div class="stat-card skeleton-loading">
+            <div class="stat-card-icon amber">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M10 2L12.09 7.26L18 7.27L13.46 10.74L15.18 16L10 12.77L4.82 16L6.54 10.74L2 7.27L7.91 7.26L10 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div class="stat-info">
+              <p class="stat-label">Total IGST</p>
+              <h3 class="stat-value" id="val-total-igst">—</h3>
+              <p class="stat-trend neutral">Claimable input tax</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="toolbar">
+          <div class="search-wrapper">
+            <svg class="search-icon" width="18" height="18" viewBox="0 0 20 20" fill="none">
+              <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M13 13L17 17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <input type="text" id="bills-search" class="search-input" placeholder="Search vendor or invoice..." oninput="filterBills()"/>
+          </div>
+          <div class="toolbar-right">
+            <div class="filter-group">
+              <label class="filter-label">Status</label>
+              <select id="bills-filter" class="filter-select" onchange="filterBills()">
+                <option value="all">All</option>
+                <option value="processed">Processed</option>
+                <option value="pending">Pending</option>
+                <option value="failed">Failed</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label class="filter-label">Sort</label>
+              <select id="bills-sort" class="filter-select" onchange="filterBills()">
+                <option value="date-desc">Newest First</option>
+                <option value="date-asc">Oldest First</option>
+                <option value="amount-desc">Highest Amount</option>
+                <option value="amount-asc">Lowest Amount</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bills Table (Desktop) -->
+        <div class="table-card" id="bills-table-container">
+          <div class="table-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Vendor Name</th>
+                  <th>Date</th>
+                  <th>Amount</th>
+                  <th>IGST</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="bills-tbody">
+                <tr class="skeleton-row"><td colspan="6"><div class="skeleton-line"></div></td></tr>
+                <tr class="skeleton-row"><td colspan="6"><div class="skeleton-line"></div></td></tr>
+                <tr class="skeleton-row"><td colspan="6"><div class="skeleton-line"></div></td></tr>
+                <tr class="skeleton-row"><td colspan="6"><div class="skeleton-line"></div></td></tr>
+                <tr class="skeleton-row"><td colspan="6"><div class="skeleton-line"></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Mobile Cards -->
+        <div id="bills-mobile-cards" class="bills-mobile-cards"></div>
+
+        <!-- Empty State -->
+        <div id="bills-empty" class="empty-state hidden">
+          <div class="empty-illustration">
+            <svg width="120" height="120" viewBox="0 0 120 120" fill="none">
+              <circle cx="60" cy="60" r="58" fill="#f0f4ff" stroke="#dbeafe" stroke-width="2"/>
+              <rect x="35" y="30" width="50" height="65" rx="6" fill="white" stroke="#bfdbfe" stroke-width="2"/>
+              <rect x="43" y="45" width="34" height="3" rx="1.5" fill="#dbeafe"/>
+              <rect x="43" y="53" width="26" height="3" rx="1.5" fill="#dbeafe"/>
+              <rect x="43" y="61" width="30" height="3" rx="1.5" fill="#dbeafe"/>
+              <circle cx="80" cy="80" r="18" fill="#25d366"/>
+              <path d="M73 80H87M80 73V87" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <h3 class="empty-title">No Bills Yet</h3>
+          <p class="empty-desc">Send a bill photo on WhatsApp to <strong>+1 (415) 523-8886</strong>.<br/>Your processed bills will appear here automatically.<br/><span style="font-size:0.78rem;color:var(--gray-400);margin-top:6px;display:inline-block;font-style:italic;">ℹ️ Works best with printed supplier bills and PDFs. Some bill formats may not be supported yet.</span></p>
+          <a href="https://wa.me/14155238886" target="_blank" class="btn-primary" style="margin-top:16px;text-decoration:none;display:inline-flex;align-items:center;gap:8px;">
+            <svg width="18" height="18" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="16" fill="#25d366"/><path d="M22.5 19.5C22.2 20.3 21 21.5 20 21.7C19 21.9 17.6 21.9 13.5 20.2C10.4 18.8 8.5 16 8.3 15.7C8.1 15.4 6.8 13.6 6.8 11.7C6.8 9.8 7.7 8.9 8.1 8.5C8.5 8.1 9 8 9.2 8H10.5C10.8 8 11 8.2 11.2 8.5C11.6 9.2 12.5 11.1 12.6 11.3C12.7 11.5 12.7 11.8 12.5 12C12.3 12.3 12.2 12.4 12 12.7C11.8 12.9 11.6 13.2 11.8 13.5C12 13.8 12.9 15.1 14.1 16.2C15.6 17.5 16.9 17.9 17.2 18.1C17.5 18.3 17.8 18.2 18 18C18.3 17.7 18.9 17 19.1 16.7C19.3 16.4 19.6 16.4 19.9 16.5C20.2 16.6 22.1 17.6 22.4 17.8C22.7 18 22.9 18.1 22.9 18.3C23 18.6 22.8 19.2 22.5 19.5Z" fill="white"/></svg>
+            Open WhatsApp Now
+          </a>
+
+        </div>
+
+        <!-- Error State -->
+        <div id="bills-error" class="empty-state hidden">
+          <div class="empty-illustration">
+            <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+              <circle cx="40" cy="40" r="38" fill="#fee2e2" stroke="#fecaca" stroke-width="2"/>
+              <path d="M40 25V43M40 54V55" stroke="#dc2626" stroke-width="3" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <h3 class="empty-title">Could Not Load Bills</h3>
+          <p class="empty-desc" id="bills-error-msg">Connection error. Make sure the Flask server is running.</p>
+          <button class="btn-primary" style="margin-top:16px;" onclick="loadBillsPage(true)">Try Again</button>
+        </div>
+      </section>
+
+      <!-- ─── PAGE: GST SUMMARY ─── -->
+      <section id="page-summary" class="page">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">GST Summary</h1>
+            <p class="page-subtitle" id="summary-month-label">Loading...</p>
+          </div>
+          <div class="header-actions">
+            <button class="btn-secondary" onclick="downloadExcel()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+              </svg>
+              Excel
+            </button>
+          </div>
+        </div>
+
+        <!-- KPI Cards -->
+        <div class="stats-grid" id="summary-stats-grid">
+          <div class="stat-card skeleton-loading">
+            <div class="stat-card-icon green">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M2 5H4L5.5 13H14.5L16 7H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle cx="7" cy="16" r="1.5" fill="currentColor"/>
+                <circle cx="13" cy="16" r="1.5" fill="currentColor"/>
+              </svg>
+            </div>
+            <div class="stat-info">
+              <p class="stat-label">Total Purchases</p>
+              <h3 class="stat-value" id="sum-total-purchases">—</h3>
+              <p class="stat-trend positive">All bills this month</p>
+            </div>
+          </div>
+          <div class="stat-card skeleton-loading">
+            <div class="stat-card-icon amber">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M10 2L12.09 7.26L18 7.27L13.46 10.74L15.18 16L10 12.77L4.82 16L6.54 10.74L2 7.27L7.91 7.26L10 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div class="stat-info">
+              <p class="stat-label">Total IGST</p>
+              <h3 class="stat-value" id="sum-total-igst">—</h3>
+              <p class="stat-trend neutral">Input tax credit</p>
+            </div>
+          </div>
+          <div class="stat-card skeleton-loading">
+            <div class="stat-card-icon blue">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <rect x="3" y="4" width="14" height="13" rx="2" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M7 2V6M13 2V6M3 9H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div class="stat-info">
+              <p class="stat-label">GSTR-4 (Quarterly)</p>
+              <h3 class="stat-value" id="sum-gstr4">—</h3>
+              <p class="stat-trend neutral">Estimated quarterly</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- CA Banner -->
+        <div class="ca-banner">
+          <div class="ca-banner-icon">📊</div>
+          <div class="ca-banner-content">
+            <h3 class="ca-banner-title">Show this summary to your CA</h3>
+            <p class="ca-banner-desc">Your complete GST breakdown is ready. Share with your Chartered Accountant for filing.</p>
+          </div>
+          <div class="ca-banner-actions">
+            <button class="btn-white" onclick="downloadExcel()">
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+                <path d="M10 3V13M10 13L6 9M10 13L14 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M3 17H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              Download Excel
+            </button>
+          </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="charts-grid">
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3 class="chart-title">Monthly Purchase Trend</h3>
+              <span class="chart-badge">Last 6 months</span>
+            </div>
+            <div class="chart-container"><canvas id="purchase-chart"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3 class="chart-title">Monthly GST Trend</h3>
+              <span class="chart-badge">Last 6 months</span>
+            </div>
+            <div class="chart-container"><canvas id="gst-chart"></canvas></div>
+          </div>
+        </div>
+
+        <!-- ════ WHATSAPP BOT SECTION ════ -->
+        <div class="whatsapp-section">
+          <div class="whatsapp-section-header">
+            <div class="whatsapp-section-icon">
+              <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+                <circle cx="16" cy="16" r="16" fill="#25d366"/>
+                <path d="M22.5 19.5C22.2 20.3 21 21.5 20 21.7C19 21.9 17.6 21.9 13.5 20.2C10.4 18.8 8.5 16 8.3 15.7C8.1 15.4 6.8 13.6 6.8 11.7C6.8 9.8 7.7 8.9 8.1 8.5C8.5 8.1 9 8 9.2 8H10.5C10.8 8 11 8.2 11.2 8.5C11.6 9.2 12.5 11.1 12.6 11.3C12.7 11.5 12.7 11.8 12.5 12C12.3 12.3 12.2 12.4 12 12.7C11.8 12.9 11.6 13.2 11.8 13.5C12 13.8 12.9 15.1 14.1 16.2C15.6 17.5 16.9 17.9 17.2 18.1C17.5 18.3 17.8 18.2 18 18C18.3 17.7 18.9 17 19.1 16.7C19.3 16.4 19.6 16.4 19.9 16.5C20.2 16.6 22.1 17.6 22.4 17.8C22.7 18 22.9 18.1 22.9 18.3C23 18.6 22.8 19.2 22.5 19.5Z" fill="white"/>
+              </svg>
+            </div>
+            <div>
+              <h2 class="whatsapp-section-title">Connect WhatsApp Bot</h2>
+              <p class="whatsapp-section-subtitle">Scan bills on WhatsApp — they appear here automatically</p>
+            </div>
+          </div>
+
+          <!-- How it works steps -->
+          <div class="workflow-steps">
+            <div class="workflow-step">
+              <div class="step-number">1</div>
+              <div class="step-content">
+                <p class="step-title">Scan the QR Code</p>
+                <p class="step-desc">Or save the number below in your contacts as "GST ACT AI"</p>
+              </div>
+            </div>
+            <div class="workflow-arrow">→</div>
+            <div class="workflow-step">
+              <div class="step-number">2</div>
+              <div class="step-content">
+                <p class="step-title">Send a Bill Photo</p>
+                <p class="step-desc">Take a clear photo of any GST invoice and send it on WhatsApp</p>
+              </div>
+            </div>
+            <div class="workflow-arrow">→</div>
+            <div class="workflow-step">
+              <div class="step-number">3</div>
+              <div class="step-content">
+                <p class="step-title">AI Processes It</p>
+                <p class="step-desc">OCR + Gemini AI extracts all fields in 1–2 minutes</p>
+              </div>
+            </div>
+            <div class="workflow-arrow">→</div>
+            <div class="workflow-step">
+              <div class="step-number">4</div>
+              <div class="step-content">
+                <p class="step-title">See It Here</p>
+                <p class="step-desc">Bill appears in "My Bills" with full GST breakdown</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- QR + Number Card -->
+          <div class="whatsapp-connect-card">
+            <div class="qr-section">
+              <div class="qr-label">Scan to open WhatsApp</div>
+              <div class="qr-wrapper" id="qr-wrapper">
+                <!-- QR rendered by JS on page load using hardcoded wa.me link -->
+                <div class="qr-loading" id="qr-loading-spinner">
+                  <div class="qr-spinner"></div>
+                  <p>Generating...</p>
+                </div>
+                <canvas id="wa-qr-canvas" class="hidden"></canvas>
+              </div>
+              <a href="https://wa.me/14155238886" target="_blank"
+                 style="font-size:0.75rem;color:var(--brand-blue);text-decoration:underline;margin-top:4px;">
+                Can't scan? Tap here
+              </a>
+            </div>
+            <div class="wa-number-section">
+              <p class="wa-number-label">Your GST ACT AI WhatsApp Number</p>
+              <!-- TWILIO NUMBER — hardcoded for instant display -->
+              <p class="wa-number-display" id="wa-number-display">+1 (415) 523-8886</p>
+
+              <!-- Big prominent WhatsApp button -->
+              <a href="https://wa.me/14155238886" id="wa-open-link" target="_blank" class="btn-wa-open">
+                <svg width="20" height="20" viewBox="0 0 32 32" fill="none">
+                  <circle cx="16" cy="16" r="16" fill="white" fill-opacity="0.25"/>
+                  <path d="M22.5 19.5C22.2 20.3 21 21.5 20 21.7C19 21.9 17.6 21.9 13.5 20.2C10.4 18.8 8.5 16 8.3 15.7C8.1 15.4 6.8 13.6 6.8 11.7C6.8 9.8 7.7 8.9 8.1 8.5C8.5 8.1 9 8 9.2 8H10.5C10.8 8 11 8.2 11.2 8.5C11.6 9.2 12.5 11.1 12.6 11.3C12.7 11.5 12.7 11.8 12.5 12C12.3 12.3 12.2 12.4 12 12.7C11.8 12.9 11.6 13.2 11.8 13.5C12 13.8 12.9 15.1 14.1 16.2C15.6 17.5 16.9 17.9 17.2 18.1C17.5 18.3 17.8 18.2 18 18C18.3 17.7 18.9 17 19.1 16.7C19.3 16.4 19.6 16.4 19.9 16.5C20.2 16.6 22.1 17.6 22.4 17.8C22.7 18 22.9 18.1 22.9 18.3C23 18.6 22.8 19.2 22.5 19.5Z" fill="white"/>
+                </svg>
+                Open WhatsApp Chat
+              </a>
+
+              <!-- Save contact button -->
+              <a href="https://wa.me/14155238886?text=Hi%20GST%20ACT%20AI%21%20I%20want%20to%20start%20scanning%20my%20bills." target="_blank"
+                 style="display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border:1.5px solid #25d366;color:#25d366;border-radius:var(--radius-md);font-size:0.85rem;font-weight:700;text-decoration:none;margin-top:4px;transition:var(--transition);"
+                 onmouseover="this.style.background='#f0fdf4'" onmouseout="this.style.background=''">
+                💬 Send First Message
+              </a>
+
+              <div class="wa-instructions" id="wa-instructions">
+                <p class="wa-instructions-title">📋 Bot Commands</p>
+                <ul class="wa-instructions-list">
+                  <li>📷 <strong>Send a photo</strong> of a GST bill → AI processes it automatically</li>
+                  <li>💬 Type <code>SUMMARY</code> → Get your monthly GST totals</li>
+                  <li>🔄 Bills appear in "My Bills" within 1–2 minutes</li>
+                  <li>📞 Save as contact: <strong>GST ACT AI</strong></li>
+                </ul>
+                <p style="font-size:0.75rem;color:var(--gray-500);margin-top:10px;font-style:italic;line-height:1.4;">
+                  💡 Works best with printed supplier bills and PDFs. Some bill formats may not be supported yet.
+                </p>
+              </div>
+            </div>
+          </div>
+
+
+
+
+          <!-- Live refresh notice -->
+          <div class="live-notice">
+            <span class="live-dot"></span>
+            Bills sync automatically. <button class="btn-inline-link" onclick="loadBillsPage(true); showPage('bills', document.getElementById('nav-bills')); updateBottomNav('bnav-bills')">Refresh My Bills →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── PAGE: DATA PRIVACY & TRUST ─── -->
+      <section id="page-privacy" class="page">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Your Data — Our Promise</h1>
+            <p class="page-subtitle">We believe your business data belongs to you. Here's how we protect it.</p>
+          </div>
+        </div>
+
+        <div class="privacy-grid">
+          <!-- Card 1: Our Core Promises -->
+          <div class="privacy-card">
+            <div class="privacy-card-header">
+              <div class="privacy-card-icon-container" style="background: var(--brand-blue-light); color: var(--brand-blue);">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+              </div>
+              <h2 class="privacy-card-title">Our Data Promise</h2>
+            </div>
+            <p class="privacy-card-desc">We design our systems to prioritize your confidentiality and respect your boundaries.</p>
+            <ul class="privacy-list">
+              <li>
+                <span class="trust-check-icon">✓</span>
+                <div>
+                  <strong style="display:block;font-size:0.92rem;color:var(--gray-800);">Bill images deleted after 90 days</strong>
+                  <p class="trust-subtext">Original photo uploads are automatically purged from our servers once parsed.</p>
+                </div>
+              </li>
+              <li>
+                <span class="trust-check-icon">✓</span>
+                <div>
+                  <strong style="display:block;font-size:0.92rem;color:var(--gray-800);">We never see your purchase prices</strong>
+                  <p class="trust-subtext">Item purchase rates are processed solely by AI and never reviewed by humans.</p>
+                </div>
+              </li>
+              <li>
+                <span class="trust-check-icon">✓</span>
+                <div>
+                  <strong style="display:block;font-size:0.92rem;color:var(--gray-800);">Only GST-relevant data is stored</strong>
+                  <p class="trust-subtext">We only record details required for GSTR summaries and reports.</p>
+                </div>
+              </li>
+              <li>
+                <span class="trust-check-icon">✓</span>
+                <div>
+                  <strong style="display:block;font-size:0.92rem;color:var(--gray-800);">Your data is never shared with anyone</strong>
+                  <p class="trust-subtext">No advertising trackers, no third-party selling, no exceptions.</p>
+                </div>
+              </li>
+              <li>
+                <span class="trust-check-icon">✓</span>
+                <div>
+                  <strong style="display:block;font-size:0.92rem;color:var(--gray-800);">Delete your account anytime</strong>
+                  <p class="trust-subtext">Wipe your entire transaction history and profile with a single request.</p>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Card 2: Data Storage & Security -->
+          <div class="privacy-card">
+            <div class="privacy-card-header">
+              <div class="privacy-card-icon-container" style="background: var(--green-light); color: var(--green);">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+              </div>
+              <h2 class="privacy-card-title">Data Storage & Security</h2>
+            </div>
+            <p class="privacy-card-desc">State-of-the-art server infrastructure built to global security standards.</p>
+            <ul class="privacy-list">
+              <li>
+                <span class="trust-check-icon green-check">✓</span>
+                <div>
+                  <strong style="display:block;font-size:0.92rem;color:var(--gray-800);">Data stored in Microsoft Azure</strong>
+                  <p class="trust-subtext">Backed by Microsoft's enterprise-grade security controls and firewalls.</p>
+                </div>
+              </li>
+              <li>
+                <span class="trust-check-icon green-check">✓</span>
+                <div>
+                  <strong style="display:block;font-size:0.92rem;color:var(--gray-800);">Hosted in Azure India Region</strong>
+                  <p class="trust-subtext">Deployed across premier, high-availability data centers locally.</p>
+                </div>
+              </li>
+              <li>
+                <span class="trust-check-icon green-check">✓</span>
+                <div>
+                  <strong style="display:block;font-size:0.92rem;color:var(--gray-800);">Your data stays in India</strong>
+                  <p class="trust-subtext">Ensuring full compliance with local financial and data residency regulations.</p>
+                </div>
+              </li>
+              <li>
+                <span class="trust-check-icon green-check">✓</span>
+                <div>
+                  <strong style="display:block;font-size:0.92rem;color:var(--gray-800);">Encrypted and secure</strong>
+                  <p class="trust-subtext">All database connections and assets are encrypted in transit and at rest.</p>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── PAGE: BILL DETAIL ─── -->
+      <section id="page-detail" class="page">
+        <div class="page-header">
+          <div class="header-back">
+            <button class="btn-back" onclick="showPage('bills', document.getElementById('nav-bills'))">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M12 4L5 10L12 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              Back to Bills
+            </button>
+            <h1 class="page-title" id="detail-vendor-title">Bill Detail</h1>
+          </div>
+          <div class="header-actions">
+            <button class="btn-secondary" onclick="downloadExcel()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+              </svg>
+              Excel
+            </button>
+            <button class="btn-primary" onclick="printBill()">
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+                <path d="M5 7V3H15V7M5 13H3V7H17V13H15M5 10H15V17H5V10Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              </svg>
+              Print
+            </button>
+          </div>
+        </div>
+
+        <!-- Invoice Info Cards -->
+        <div class="invoice-info-grid">
+          <div class="invoice-info-card">
+            <p class="info-label">Vendor Name</p>
+            <p class="info-value" id="detail-vendor">—</p>
+          </div>
+          <div class="invoice-info-card">
+            <p class="info-label">Invoice Number</p>
+            <p class="info-value mono" id="detail-invoice-no">—</p>
+          </div>
+          <div class="invoice-info-card">
+            <p class="info-label">Invoice Date</p>
+            <p class="info-value" id="detail-date">—</p>
+          </div>
+          <div class="invoice-info-card">
+            <p class="info-label">GSTIN</p>
+            <p class="info-value mono" id="detail-gstin">—</p>
+          </div>
+          <div class="invoice-info-card highlight-green">
+            <p class="info-label">Total Amount</p>
+            <p class="info-value large" id="detail-total-amount">—</p>
+          </div>
+          <div class="invoice-info-card highlight-amber">
+            <p class="info-label">Total IGST</p>
+            <p class="info-value large" id="detail-total-igst">—</p>
+          </div>
+        </div>
+
+        <!-- Line Items Skeleton / Table -->
+        <div class="table-card" id="detail-table-card">
+          <div class="table-card-header">
+            <h3 class="table-card-title">Line Items</h3>
+            <span class="table-card-count" id="detail-items-count">Loading...</span>
+          </div>
+          <div class="table-wrapper scrollable">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th class="sticky-col">#</th>
+                  <th>Item Name</th>
+                  <th>HSN / SAC</th>
+                  <th>Qty</th>
+                  <th>Rate</th>
+                  <th>Taxable Value</th>
+                  <th>IGST</th>
+                </tr>
+              </thead>
+              <tbody id="detail-tbody">
+                <tr class="skeleton-row"><td colspan="7"><div class="skeleton-line"></div></td></tr>
+                <tr class="skeleton-row"><td colspan="7"><div class="skeleton-line"></div></td></tr>
+                <tr class="skeleton-row"><td colspan="7"><div class="skeleton-line"></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Bottom Summary -->
+        <div class="bill-summary-card">
+          <div class="bill-summary-row">
+            <span class="summary-label">Total Taxable Value</span>
+            <span class="summary-value" id="detail-taxable">—</span>
+          </div>
+          <div class="bill-summary-row">
+            <span class="summary-label">Total IGST</span>
+            <span class="summary-value amber" id="detail-igst-total">—</span>
+          </div>
+          <div class="bill-summary-divider"></div>
+          <div class="bill-summary-row grand-total">
+            <span class="summary-label">Grand Total</span>
+            <span class="summary-value grand" id="detail-grand-total">—</span>
+          </div>
+        </div>
+
+        <!-- FABs (mobile) -->
+        <div class="fab-group">
+          <button class="fab fab-primary" onclick="printBill()" title="Print">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M5 7V3H15V7M5 13H3V7H17V13H15M5 10H15V17H5V10Z" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Bottom Nav (Mobile) -->
+    <nav class="bottom-nav" id="bottom-nav">
+      <a href="#" class="bottom-nav-item active" id="bnav-bills"
+         onclick="showPage('bills', document.getElementById('nav-bills')); updateBottomNav('bnav-bills')">
+        <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+          <path d="M4 4H16C16.55 4 17 4.45 17 5V17C17 17.55 16.55 18 16 18H4C3.45 18 3 17.55 3 17V5C3 4.45 3.45 4 4 4Z" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M7 8H13M7 11H13M7 14H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span>My Bills</span>
+      </a>
+      <a href="#" class="bottom-nav-item" id="bnav-summary"
+         onclick="showPage('summary', document.getElementById('nav-summary')); updateBottomNav('bnav-summary')">
+        <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+          <path d="M2 14L7 9L11 13L18 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M14 6H18V10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>GST Summary</span>
+      </a>
+      <a href="#" class="bottom-nav-item" id="bnav-privacy"
+         onclick="showPage('privacy', document.getElementById('nav-privacy')); updateBottomNav('bnav-privacy')">
+        <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+          <path d="M10 2L3 5V10C3 14.14 5.97 17.98 10 19C14.03 17.98 17 14.14 17 10V5L10 2Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Privacy</span>
+      </a>
+    </nav>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" role="alert" aria-live="polite"></div>
+
+  <script src="js/data.js?v=2.0.4"></script>
+  <script src="js/app.js?v=2.0.4"></script>
+</body>
+</html>

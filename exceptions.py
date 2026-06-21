@@ -34,3 +34,26 @@ class DuplicateInvoiceError(Exception):
     def __init__(self, existing_bill_id: str):
         self.existing_bill_id = existing_bill_id
         super().__init__(f"Invoice already exists with ID: {existing_bill_id}")
+
+
+class LowConfidenceError(Exception):
+    """
+    Raised when the invoice extraction confidence is low, or when
+    unsupported formats (handwritten, carbon copy, multiple rates, etc.) are detected.
+    """
+    def __init__(self, message: str = "Unable to process this bill completely. Please upload a clearer image or enter it manually."):
+        self.message = message
+        super().__init__(self.message)
+
+
+class SuspiciousDateError(Exception):
+    """
+    Raised when the extracted invoice date is outside the acceptable range
+    (more than 1 year before or after the current date), indicating a
+    likely OCR misread. Triggers human-in-the-loop confirmation.
+    """
+    def __init__(self, extracted_date: str, message: str = ""):
+        self.extracted_date = extracted_date
+        self.message = message or f"Suspicious invoice date detected: {extracted_date}"
+        super().__init__(self.message)
+
