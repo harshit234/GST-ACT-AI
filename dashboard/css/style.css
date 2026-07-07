@@ -709,6 +709,21 @@ input, select { font-family: var(--font); }
 }
 .filter-select:focus { border-color: var(--brand-blue); }
 
+/* Month Picker in Header */
+.month-picker-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.month-picker-wrapper .filter-label {
+  margin: 0;
+}
+.month-picker-wrapper .month-picker {
+  min-width: 160px;
+  font-weight: 600;
+  color: var(--gray-800);
+}
+
 /* Table Card */
 .table-card {
   background: var(--white);

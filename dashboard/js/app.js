@@ -15,6 +15,7 @@ let purchaseChart     = null;
 let gstChart          = null;
 let autoRefreshTimer  = null;
 let loginPhone        = '';          // Stores phone number across Send/Verify OTP steps
+let selectedBillsMonth = '';         // '' = all months, 'YYYY-MM' = specific month
 
 /* ══════════════════════════════════════════════
    INIT
@@ -203,6 +204,7 @@ function showApp() {
   const initials = phone.slice(-4, -2) || 'ME';
   document.getElementById('sidebar-avatar').textContent = initials;
 
+  populateMonthPicker();
   setMonthLabels();
   loadBillsPage();
 }
@@ -280,11 +282,47 @@ function updateBottomNav(activeId) {
 }
 
 function setMonthLabels() {
-  const label = getCurrentMonthLabel();
-  ['bills-month-label', 'summary-month-label'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = label;
-  });
+  // Update bills month label based on selected month
+  const billsLabel = document.getElementById('bills-month-label');
+  if (billsLabel) {
+    if (!selectedBillsMonth || selectedBillsMonth === 'all') {
+      billsLabel.textContent = 'All Months';
+    } else {
+      const [yr, mo] = selectedBillsMonth.split('-');
+      const d = new Date(parseInt(yr), parseInt(mo) - 1, 1);
+      billsLabel.textContent = d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+    }
+  }
+  // Summary label always shows current month
+  const summaryLabel = document.getElementById('summary-month-label');
+  if (summaryLabel) summaryLabel.textContent = getCurrentMonthLabel();
+}
+
+function populateMonthPicker() {
+  const picker = document.getElementById('bills-month-picker');
+  if (!picker) return;
+
+  const now = new Date();
+  let options = '<option value="all">All Months</option>';
+
+  // Generate last 12 months (current month first)
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+    const selected = (i === 0) ? ' selected' : '';
+    options += `<option value="${val}"${selected}>${label}</option>`;
+  }
+
+  picker.innerHTML = options;
+  selectedBillsMonth = getCurrentMonthParam(); // Default to current month
+}
+
+function onBillsMonthChange() {
+  const picker = document.getElementById('bills-month-picker');
+  selectedBillsMonth = picker.value;
+  setMonthLabels();
+  loadBillsPage(true);
 }
 
 /* ══════════════════════════════════════════════
@@ -296,7 +334,7 @@ async function loadBillsPage(forceRefresh = false) {
   showBillsState('loading');
 
   try {
-    const month = getCurrentMonthParam();
+    const month = (selectedBillsMonth === 'all') ? '' : (selectedBillsMonth || getCurrentMonthParam());
     const data  = await apiFetchBills(month);
 
     if (!data.success) throw new Error(data.error || 'Failed to load bills');
