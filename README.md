@@ -4,6 +4,8 @@ An AI-powered WhatsApp assistant designed to convert GST invoices into structure
 
 Built with **Flask**, **Google Cloud Vision API**, **Gemini (gemini-2.5-flash)**, **Twilio WhatsApp API**, and **Supabase**, this bot automates the intake, OCR, parsing, mathematical validation, and recording of retail and wholesale purchase invoices.
 
+📐 **[View the High-Level Design Architecture →](ARCHITECTURE.md)** — Complete system design with component diagrams, data flow, database schema, API surface, and design trade-offs.
+
 ---
 
 ## 🚀 Key Features
@@ -39,10 +41,7 @@ sequenceDiagram
         Twilio-->>User: Sends Monthly Report
     else User sends image
         Flask->>Flask: Spawn background thread
-        Flask-->>Twilio: Immediate "Got your bill!" ACK (TwiML)
-        Twilio-->>User: "Got your bill! Processing..."
-        Note over Flask, Supabase: Asynchronous Processing Pipeline
-        Flask->>OCR: Download Image & run OCR
+        Flask-->>Twilio: Immediate "R
         OCR-->>Flask: Raw extracted text
         Flask->>Gemini: Parse structured JSON
         Gemini-->>Flask: Structured invoice dictionary
@@ -52,7 +51,10 @@ sequenceDiagram
         Flask->>Twilio: Outbound WhatsApp API call
         Twilio-->>User: Detailed summary + itemized breakdown
     end
-```
+```Got your bill!" ACK (TwiML)
+        Twilio-->>User: "Got your bill! Processing..."
+        Note over Flask, Supabase: Asynchronous Processing Pipeline
+        Flask->>OCR: Download Image & run OC
 
 ---
 
