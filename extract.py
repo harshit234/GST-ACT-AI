@@ -1,8 +1,11 @@
 import os
 import json
+import re
+import urllib.request
 import google.generativeai as genai
 from dotenv import load_dotenv
 from exceptions import NotAnInvoiceError, LowConfidenceError
+from db import get_hsn_from_cache, save_hsn_to_cache
 
 load_dotenv()
 
@@ -10,6 +13,86 @@ load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
+
+
+# ── OpenRouter HSN lookup (cache-aware) ────────────────────────────────
+
+def lookup_hsn_for_item(description: str) -> dict:
+    """
+    Returns {hsn_code, gst_rate, unit} for a given item description.
+
+    Strategy:
+      1. Check Supabase hsn_cache — if hit, return immediately (no API call).
+      2. On cache miss, call OpenRouter (google/gemini-flash-1.5) to infer
+         the HSN code, GST rate, and common unit of measure.
+      3. Save the API result to cache before returning.
+
+    Failures are non-fatal: returns empty strings / None on any error.
+    """
+    description = (description or "").strip()
+    if not description:
+        return {"hsn_code": None, "gst_rate": None, "unit": None}
+
+    # ── 1. Cache check ────────────────────────────────────────────
+    cached = get_hsn_from_cache(description)
+    if cached:
+        print(f"[HSN Cache] HIT: '{description}' -> HSN {cached.get('hsn_code')}")
+        return cached  # {hsn_code, gst_rate, unit}
+
+    # ── 2. OpenRouter API call ───────────────────────────────────────
+    print(f"[HSN Cache] MISS: '{description}' -- calling OpenRouter...")
+    or_key = os.getenv("OPENROUTERAPI_KEY", "").strip()
+    if not or_key:
+        print("[HSN] OPENROUTERAPI_KEY not set -- skipping HSN lookup.")
+        return {"hsn_code": None, "gst_rate": None, "unit": None}
+
+    prompt = (
+        f"For the following product/service item name from an Indian GST invoice, "
+        f"return a JSON object with exactly these keys:\n"
+        f"  hsn_code  - 4-8 digit HSN or SAC code (string, e.g. \"4412\")\n"
+        f"  gst_rate  - applicable GST rate as an integer (0/5/12/18/28)\n"
+        f"  unit      - common unit of measure (e.g. PCS, KG, MTR, SQF, NOS)\n\n"
+        f"Item: {description}\n\n"
+        f"Return ONLY the raw JSON object, no markdown, no explanation."
+    )
+
+    payload = json.dumps({
+        "model": "google/gemini-2.5-flash",
+        "messages": [{"role": "user", "content": prompt}],
+        "response_format": {"type": "json_object"},
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        url="https://openrouter.ai/api/v1/chat/completions",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {or_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        content = body["choices"][0]["message"]["content"]
+        # Strip potential markdown fences
+        content = re.sub(r"^```[a-z]*\n?", "", content.strip())
+        content = re.sub(r"\n?```$", "", content.strip())
+        hsn_data = json.loads(content)
+    except Exception as e:
+        print(f"[HSN] OpenRouter error for '{description}': {e}")
+        return {"hsn_code": None, "gst_rate": None, "unit": None}
+
+    hsn_code = str(hsn_data.get("hsn_code") or "").strip() or None
+    gst_rate = hsn_data.get("gst_rate")
+    unit     = str(hsn_data.get("unit") or "").strip() or None
+
+    # ── 3. Save to cache ────────────────────────────────────────────
+    save_hsn_to_cache(description, hsn_code, gst_rate, unit)
+
+    return {"hsn_code": hsn_code, "gst_rate": gst_rate, "unit": unit}
+
 
 def extract_invoice_details(ocr_text: str) -> dict:
     """
@@ -36,12 +119,11 @@ def extract_invoice_details(ocr_text: str) -> dict:
     Return a clean JSON object containing the following keys:
     - is_invoice: true if this text is from a bill/invoice/receipt, false if it appears to be
       something else (menu, letter, random text, selfie description, etc.)
-    - low_confidence: true if you detect that:
-      a) The bill is handwritten (not printed) or a carbon copy.
-      b) The bill represents a credit/debit note.
-      c) The bill contains multiple different GST rates applied to items, freight/packing adjustments, or cess items.
-      d) The OCR text is cut off, blurry, garbled, or critical fields (like totals or vendor details) are missing/ambiguous.
-      Otherwise, set this to false. Prioritize accuracy and transparency; do not attempt to guess or extrapolate if information is missing or unclear.
+    - low_confidence: true ONLY if you detect that:
+      a) The bill is handwritten (not printed) or a carbon copy — printed/typed bills are always fine.
+      b) The bill represents a credit note or debit note (not a tax invoice or purchase invoice).
+      c) The OCR text is severely cut off, blurry, or garbled such that vendor name, GSTIN, or total amount cannot be determined at all.
+      Otherwise, set this to false. Bills with multiple GST rates, freight charges, packing charges, cess, or rounding adjustments are PERFECTLY VALID — do NOT flag them as low_confidence. If you can read the key fields, set low_confidence to false.
     - vendor_name: The name of the vendor (e.g. Pooja Decorative Plywoods)
     - vendor_gstin: Vendor's GSTIN/UIN number
     - invoice_number: Invoice number
@@ -97,6 +179,25 @@ def extract_invoice_details(ocr_text: str) -> dict:
     has_gstin  = bool(result.get("vendor_gstin"))
     if not has_vendor and not has_total and not has_gstin:
         raise NotAnInvoiceError("No invoice fields could be identified in the image.")
+
+    # ── HSN Cache enrichment ─────────────────────────────────────────────────
+    # For every line item, check the HSN cache (and call OpenRouter on miss).
+    # We only overwrite hsn_sac / gst_rate when the AI extraction left them blank,
+    # so real values on the invoice always take priority.
+    line_items = result.get("line_items") or []
+    for item in line_items:
+        description = (item.get("description") or "").strip()
+        if not description:
+            continue
+        hsn_info = lookup_hsn_for_item(description)
+        # Backfill only missing fields — don't overwrite values already found
+        if not item.get("hsn_sac") and hsn_info.get("hsn_code"):
+            item["hsn_sac"] = hsn_info["hsn_code"]
+        if item.get("gst_rate") is None and hsn_info.get("gst_rate") is not None:
+            item["gst_rate"] = hsn_info["gst_rate"]
+        if not item.get("unit") and hsn_info.get("unit"):
+            item["unit"] = hsn_info["unit"]
+    result["line_items"] = line_items
 
     return result
 

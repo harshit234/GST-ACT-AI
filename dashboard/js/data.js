@@ -95,7 +95,10 @@ async function apiFetchBills(month = '') {
   const params = new URLSearchParams({ phone: SESSION.phone });
   if (month) params.set('month', month);
   const res = await fetch(`${API_BASE}/api/bills?${params}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
   return res.json();
 }
 
@@ -103,7 +106,10 @@ async function apiFetchBills(month = '') {
 async function apiFetchBill(billId) {
   const params = new URLSearchParams({ phone: SESSION.phone });
   const res = await fetch(`${API_BASE}/api/bills/${billId}?${params}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
   return res.json();
 }
 
@@ -111,13 +117,19 @@ async function apiFetchBill(billId) {
 async function apiFetchSummary() {
   const params = new URLSearchParams({ phone: SESSION.phone });
   const res = await fetch(`${API_BASE}/api/summary?${params}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
   return res.json();
 }
 
 // ─── API: WhatsApp Bot Info ───────────────────────────────────────────────────
 async function apiFetchWhatsappInfo() {
   const res = await fetch(`${API_BASE}/api/whatsapp-info`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
   return res.json();
 }

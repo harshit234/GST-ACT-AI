@@ -82,11 +82,14 @@ def validate_invoice_date(invoice_data: dict) -> None:
 def validate_gst_invoice(invoice_data: dict) -> tuple:
     """
     Checks if extracted numbers are mathematically correct.
-    
-    Input: JSON from File 2 (dict)
-    Process: Adds up all line item amounts, adds GST on top (CGST, SGST, IGST),
-             checks if total matches bill total (tolerance of Rs.10).
-    Output: (True/False, message explaining result)
+
+    Input:  JSON from extraction step (dict)
+    Process: Sums all line item amounts, adds CGST+SGST+IGST,
+             compares against the bill's stated total_amount.
+    Output: (is_valid: bool, calculated_total: float, difference: float)
+
+    The caller decides what to do with the difference — app.py uses > Rs.10
+    as the threshold to trigger the merchant confirmation flow.
     """
     try:
         # Sum of all line item amounts
@@ -96,36 +99,31 @@ def validate_gst_invoice(invoice_data: dict) -> tuple:
             amount = item.get("amount")
             if amount is not None:
                 calculated_subtotal += float(amount)
-                
+
         # Total tax (CGST + SGST + IGST)
         cgst = float(invoice_data.get("cgst") or 0.0)
         sgst = float(invoice_data.get("sgst") or 0.0)
         igst = float(invoice_data.get("igst") or 0.0)
         tax_total = cgst + sgst + igst
-        
-        # Expected Total
+
+        # Actual total from the bill image
         actual_total = float(invoice_data.get("total_amount") or 0.0)
-        
-        # Calculated Total
+
+        # Our calculated total
         calculated_total = calculated_subtotal + tax_total
-        
-        # Check difference between calculated and actual total
+
+        # Absolute difference
         diff = abs(calculated_total - actual_total)
-        
-        message = (
-            f"Calculated Subtotal: Rs.{calculated_subtotal:,.2f}, "
-            f"Taxes (CGST={cgst:,.2f}, SGST={sgst:,.2f}, IGST={igst:,.2f}): Rs.{tax_total:,.2f}, "
-            f"Calculated Total: Rs.{calculated_total:,.2f}, "
-            f"Actual Bill Total: Rs.{actual_total:,.2f}, "
-            f"Difference: Rs.{diff:,.2f}."
-        )
-        
-        # Invoices can include freight, packing charges, rounding adjustments, etc.
-        # So we always return True and let the merchant review the totals and make the final decision.
-        return True, f"Validation completed: {message}"
-            
+
+        # Bills often include freight / packing / rounding adjustments.
+        # We always return is_valid=True and let the caller decide the threshold.
+        return True, calculated_total, diff
+
     except Exception as e:
-        return True, f"Validation completed with calculation error. Details: {e}"
+        # On any calculation error, return 0 diff so we don't block the pipeline
+        actual_total = float(invoice_data.get("total_amount") or 0.0)
+        return True, actual_total, 0.0
+
 
 if __name__ == "__main__":
     import sys

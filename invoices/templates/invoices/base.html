@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="GST ACT AI — Customer Invoice Generator. Create GST-compliant invoices instantly." />
+  <title>{% block title %}Invoice{% endblock %} — GST ACT AI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('invoices.static', filename='css/invoice.css') }}" />
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+  <!-- ════ SIDEBAR ════ -->
+  <aside class="inv-sidebar" id="inv-sidebar">
+    <div class="inv-sidebar-header">
+      <div class="inv-sidebar-logo">
+        <svg width="36" height="36" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="14" fill="#1a56db"/>
+          <rect x="10" y="28" width="5" height="8" rx="1" fill="white"/>
+          <rect x="18" y="22" width="5" height="14" rx="1" fill="white"/>
+          <rect x="26" y="18" width="5" height="18" rx="1" fill="white"/>
+          <rect x="34" y="14" width="5" height="22" rx="1" fill="#93c5fd"/>
+        </svg>
+        <div>
+          <span class="inv-sidebar-brand">GST ACT AI</span>
+          <span class="inv-sidebar-version">Invoices</span>
+        </div>
+      </div>
+    </div>
+    <nav class="inv-sidebar-nav">
+      <a href="/dashboard" class="inv-nav-item">
+        <svg class="inv-nav-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M3 10L10 3L17 10V17C17 17.55 16.55 18 16 18H4C3.45 18 3 17.55 3 17V10Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M7 18V12H13V18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Dashboard</span>
+      </a>
+      <a href="/new-invoice" class="inv-nav-item {% if request.path == '/new-invoice' %}active{% endif %}" id="nav-new-invoice">
+        <svg class="inv-nav-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M14 2H6C5.45 2 5 2.45 5 3V17C5 17.55 5.45 18 6 18H14C14.55 18 15 17.55 15 17V3C15 2.45 14.55 2 14 2Z" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M8 6H12M8 9H12M8 12H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="15" cy="15" r="4" fill="#10b981" stroke="white" stroke-width="1.5"/>
+          <path d="M13.5 15H16.5M15 13.5V16.5" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span>New Invoice</span>
+      </a>
+      <a href="/invoices" class="inv-nav-item {% if request.path == '/invoices' %}active{% endif %}" id="nav-invoices">
+        <svg class="inv-nav-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M4 4H16C16.55 4 17 4.45 17 5V17C17 17.55 16.55 18 16 18H4C3.45 18 3 17.55 3 17V5C3 4.45 3.45 4 4 4Z" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M7 8H13M7 11H13M7 14H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span>Invoice History</span>
+      </a>
+    </nav>
+    <div class="inv-sidebar-footer">
+      <div class="inv-user-profile">
+        <div class="inv-user-avatar" id="inv-sidebar-avatar">ME</div>
+        <div class="inv-user-info">
+          <span class="inv-user-name" id="inv-sidebar-name">Merchant</span>
+          <span class="inv-user-phone" id="inv-sidebar-phone">—</span>
+        </div>
+        <button class="inv-logout-btn" onclick="window.location.href='/dashboard'" title="Back to Dashboard">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+            <path d="M12 4L5 10L12 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ════ MOBILE TOP BAR ════ -->
+  <header class="inv-mobile-header">
+    <button class="inv-hamburger" onclick="toggleSidebar()">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <path d="M3 6H21M3 12H21M3 18H21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <span class="inv-mobile-title">GST ACT AI</span>
+    <div style="width:24px"></div>
+  </header>
+
+  <!-- ════ MAIN CONTENT ════ -->
+  <main class="inv-main-content" id="inv-main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- ════ MOBILE BOTTOM NAV ════ -->
+  <nav class="inv-bottom-nav" id="inv-bottom-nav">
+    <a href="/dashboard" class="inv-bottom-nav-item">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+        <path d="M3 10L10 3L17 10V17C17 17.55 16.55 18 16 18H4C3.45 18 3 17.55 3 17V10Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>Dashboard</span>
+    </a>
+    <a href="/new-invoice" class="inv-bottom-nav-item {% if request.path == '/new-invoice' %}active{% endif %}">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+        <path d="M14 2H6C5.45 2 5 2.45 5 3V17C5 17.55 5.45 18 6 18H14C14.55 18 15 17.55 15 17V3C15 2.45 14.55 2 14 2Z" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M8 6H12M8 9H12M8 12H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <span>New Invoice</span>
+    </a>
+    <a href="/invoices" class="inv-bottom-nav-item {% if request.path == '/invoices' %}active{% endif %}">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+        <path d="M4 4H16C16.55 4 17 4.45 17 5V17C17 17.55 16.55 18 16 18H4C3.45 18 3 17.55 3 17V5C3 4.45 3.45 4 4 4Z" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M7 8H13M7 11H13M7 14H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <span>History</span>
+    </a>
+  </nav>
+
+  <!-- ════ SIDEBAR OVERLAY (Mobile) ════ -->
+  <div class="inv-sidebar-overlay" id="inv-sidebar-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- ════ TOAST ════ -->
+  <div id="inv-toast" class="inv-toast" role="alert" aria-live="polite"></div>
+
+  <!-- ════ SCRIPTS ════ -->
+  <script>
+    // ── Auth check: redirect to dashboard if not logged in ──
+    (function() {
+      const phone = localStorage.getItem('gst_phone');
+      const token = localStorage.getItem('gst_token');
+      if (!phone || !token) {
+        window.location.href = '/dashboard';
+        return;
+      }
+      // Update sidebar profile
+      const phoneEl = document.getElementById('inv-sidebar-phone');
+      const nameEl = document.getElementById('inv-sidebar-name');
+      const avatarEl = document.getElementById('inv-sidebar-avatar');
+      if (phoneEl) phoneEl.textContent = phone;
+      if (nameEl) nameEl.textContent = localStorage.getItem('gst_name') || 'Merchant';
+      if (avatarEl) avatarEl.textContent = phone.slice(-4, -2) || 'ME';
+    })();
+
+    // ── Mobile sidebar toggle ──
+    function toggleSidebar() {
+      document.getElementById('inv-sidebar').classList.toggle('open');
+      document.getElementById('inv-sidebar-overlay').classList.toggle('visible');
+    }
+
+    // ── Toast ──
+    let _toastTimer = null;
+    function showToast(message, type = 'default') {
+      const toast = document.getElementById('inv-toast');
+      toast.textContent = message;
+      toast.className = 'inv-toast';
+      if (type === 'success') toast.classList.add('inv-toast-success');
+      else if (type === 'error') toast.classList.add('inv-toast-error');
+      else if (type === 'info') toast.classList.add('inv-toast-info');
+      requestAnimationFrame(() => toast.classList.add('visible'));
+      clearTimeout(_toastTimer);
+      _toastTimer = setTimeout(() => toast.classList.remove('visible'), 3500);
+    }
+
+    // ── Indian ₹ format ──
+    function fmtINR(val) {
+      if (val === null || val === undefined || val === '') return '—';
+      const num = parseFloat(val);
+      if (isNaN(num)) return String(val);
+      return '₹' + num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    // ── Date format ──
+    function fmtDate(dateStr) {
+      if (!dateStr) return '—';
+      const d = new Date(dateStr);
+      if (isNaN(d)) return dateStr;
+      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+
+    // ── Get session phone ──
+    function getPhone() {
+      return localStorage.getItem('gst_phone') || '';
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+
+</body>
+</html>

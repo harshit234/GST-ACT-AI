@@ -6,7 +6,80 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import re
 from exceptions import DuplicateInvoiceError
+
+# ── HSN Cache helpers ────────────────────────────────────────────────────────
+
+def _normalize_item_name(name: str) -> str:
+    """Lowercase, strip punctuation/extra spaces for consistent cache keys."""
+    name = name.lower().strip()
+    name = re.sub(r"[^a-z0-9 ]", " ", name)  # keep only alphanumeric + spaces
+    name = re.sub(r"\s+", " ", name).strip()
+    return name
+
+
+def get_hsn_from_cache(item_name: str) -> dict | None:
+    """
+    Looks up a normalized item name in the Supabase hsn_cache table.
+
+    Returns a dict with keys {hsn_code, gst_rate, unit} on hit, or None on miss.
+    """
+    normalized = _normalize_item_name(item_name)
+    if not normalized:
+        return None
+    try:
+        client = get_supabase_client()
+        result = (
+            client.table("hsn_cache")
+            .select("hsn_code, gst_rate, unit")
+            .eq("item_name_normalized", normalized)
+            .limit(1)
+            .execute()
+        )
+        if result.data:
+            return result.data[0]
+    except Exception as e:
+        print(f"[HSN Cache] read error: {e}")
+    return None
+
+
+def save_hsn_to_cache(item_name: str, hsn_code: str, gst_rate, unit: str) -> None:
+    """
+    Upserts an HSN lookup result into the Supabase hsn_cache table.
+
+    Uses item_name_normalized as the unique key (conflict → update).
+    Falls back to a plain insert (ignoring duplicates) if no UNIQUE constraint exists yet.
+    """
+    normalized = _normalize_item_name(item_name)
+    if not normalized:
+        return
+    try:
+        client = get_supabase_client()
+        row = {
+            "item_name_normalized": normalized,
+            "hsn_code": hsn_code,
+            "gst_rate": gst_rate,
+            "unit": unit,
+        }
+        try:
+            # Try upsert first (requires UNIQUE constraint on item_name_normalized)
+            client.table("hsn_cache").upsert(
+                row,
+                on_conflict="item_name_normalized",
+            ).execute()
+        except Exception:
+            # Fallback: plain insert; ignore duplicate key errors silently
+            try:
+                client.table("hsn_cache").insert(row).execute()
+            except Exception as ie:
+                err_str = str(ie)
+                if "duplicate" not in err_str.lower() and "unique" not in err_str.lower():
+                    raise
+        print(f"[HSN Cache] saved: '{normalized}' -> HSN {hsn_code}")
+    except Exception as e:
+        print(f"[HSN Cache] write error: {e}")
+
 
 def get_supabase_client() -> Client:
     """Initializes and returns the Supabase client."""
@@ -15,6 +88,94 @@ def get_supabase_client() -> Client:
     if not url or not key:
         raise ValueError("SUPABASE_URL or SUPABASE_KEY not set.")
     return create_client(url, key)
+
+
+# -- Pending Bills helpers ---------------------------------------------------
+# These back the math-validation confirmation flow:
+#   1. When diff > Rs.10, save to pending_bills instead of bills.
+#   2. Merchant replies "1" -> save_invoice, delete_pending_bill.
+#   3. Merchant replies "2" -> delete_pending_bill, ask for new photo.
+
+PENDING_BILL_TTL_SECONDS = 600  # 10 minutes
+
+
+def save_pending_bill(
+    whatsapp_number: str,
+    invoice_data: dict,
+    wa_from: str,
+    bill_total: float,
+    calculated_total: float,
+    difference: float,
+) -> None:
+    """
+    Upserts a pending bill into the pending_bills table.
+
+    Uses whatsapp_number as the conflict key so that sending a new photo
+    always replaces the previous pending entry for the same merchant.
+    """
+    client = get_supabase_client()
+    client.table("pending_bills").upsert(
+        {
+            "whatsapp_number": whatsapp_number,
+            "invoice_data":    invoice_data,
+            "wa_from":         wa_from,
+            "bill_total":      round(bill_total, 2),
+            "calculated_total": round(calculated_total, 2),
+            "difference":      round(difference, 2),
+        },
+        on_conflict="whatsapp_number",
+    ).execute()
+    print(f"[PendingBill] saved for {whatsapp_number} | diff=Rs.{difference:.2f}")
+
+
+def get_pending_bill(whatsapp_number: str) -> dict | None:
+    """
+    Fetches the pending bill row for a merchant.
+
+    Returns the full row dict (including invoice_data, bill_total, etc.)
+    or None if no pending bill exists or it has expired (> 10 min old).
+    """
+    from datetime import datetime, timezone, timedelta
+    client = get_supabase_client()
+    result = (
+        client.table("pending_bills")
+        .select("*")
+        .eq("whatsapp_number", whatsapp_number)
+        .limit(1)
+        .execute()
+    )
+    if not result.data:
+        return None
+
+    row = result.data[0]
+
+    # Expiry check — created_at is UTC ISO string from Supabase
+    created_str = row.get("created_at", "")
+    if created_str:
+        try:
+            # Supabase returns e.g. "2026-07-19T07:30:00+00:00"
+            created_at = datetime.fromisoformat(created_str)
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            age_seconds = (datetime.now(timezone.utc) - created_at).total_seconds()
+            if age_seconds > PENDING_BILL_TTL_SECONDS:
+                # Expired — clean it up silently and return None
+                delete_pending_bill(whatsapp_number)
+                print(f"[PendingBill] expired for {whatsapp_number} ({age_seconds:.0f}s old)")
+                return None
+        except Exception:
+            pass  # If parse fails, still return the row
+
+    return row
+
+
+def delete_pending_bill(whatsapp_number: str) -> None:
+    """Removes the pending bill entry for a merchant (after confirm or reject)."""
+    client = get_supabase_client()
+    client.table("pending_bills").delete().eq("whatsapp_number", whatsapp_number).execute()
+    print(f"[PendingBill] deleted for {whatsapp_number}")
+
+
 
 def get_or_create_merchant(client: Client, whatsapp_number: str, vendor_name: str = None, vendor_gstin: str = None) -> str:
     """
@@ -65,6 +226,7 @@ def save_invoice(invoice_data: dict, whatsapp_number: str) -> str:
     # Step 2: Build bill record
     bill_record = {
         "merchant_id": merchant_id,
+        "bill_type": "purchase",
         "vendor_name": vendor_name,
         "vendor_gstin": vendor_gstin,
         "invoice_number": invoice_data.get("invoice_number"),
@@ -78,18 +240,20 @@ def save_invoice(invoice_data: dict, whatsapp_number: str) -> str:
     }
     
     # Step 3: Fuzzy duplicate detection
-    # Instead of exact GSTIN matching (which fails on OCR errors like P→F),
-    # compare invoice number + amount + vendor name similarity (>80%).
+    # Compares invoice number (normalized exact), total amount (exact),
+    # and vendor name (>80% difflib similarity) to catch OCR-mangled re-uploads.
     from duplicate_detector import check_fuzzy_duplicate
-    existing_id = check_fuzzy_duplicate(
+    dup_result = check_fuzzy_duplicate(
         client=client,
         invoice_number=bill_record.get("invoice_number", ""),
         total_amount=float(bill_record.get("total_amount") or 0),
         vendor_name=bill_record.get("vendor_name", ""),
         whatsapp_number=whatsapp_number,
     )
-    if existing_id:
-        raise DuplicateInvoiceError(existing_id)
+    if dup_result:
+        existing_id, existing_date = dup_result
+        raise DuplicateInvoiceError(existing_id, existing_date)
+
 
     # Step 4: Insert bill into bills table
     print("Saving bill to Supabase...")
@@ -120,6 +284,7 @@ def get_monthly_summary(whatsapp_number: str) -> dict:
         client.table("bills")
         .select("cgst, sgst, igst, total_amount")
         .eq("whatsapp_number", whatsapp_number)
+        .eq("bill_type", "purchase")
         .gte("created_at", month_start)
         .lt("created_at", month_end)
         .execute()

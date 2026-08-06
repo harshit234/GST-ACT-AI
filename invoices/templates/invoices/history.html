@@ -1,0 +1,249 @@
+{% extends "invoices/base.html" %}
+{% block title %}Invoice History{% endblock %}
+
+{% block content %}
+<div class="inv-page-header">
+  <div>
+    <h1 class="inv-page-title">📋 Invoice History</h1>
+    <p class="inv-page-subtitle" id="history-subtitle">Loading...</p>
+  </div>
+  <div>
+    <a href="/new-invoice" class="inv-btn inv-btn-primary">
+      + New Invoice
+    </a>
+  </div>
+</div>
+
+<!-- ════ STATS ════ -->
+<div class="inv-stats-grid" id="history-stats">
+  <div class="inv-stat-card">
+    <div class="inv-stat-icon blue">🧾</div>
+    <div>
+      <div class="inv-stat-label">Total Invoices</div>
+      <div class="inv-stat-value" id="stat-total-invoices">—</div>
+    </div>
+  </div>
+  <div class="inv-stat-card">
+    <div class="inv-stat-icon green">💰</div>
+    <div>
+      <div class="inv-stat-label">Total Revenue</div>
+      <div class="inv-stat-value" id="stat-total-amount">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ TOOLBAR ════ -->
+<div class="inv-history-toolbar">
+  <div class="inv-search-wrapper">
+    <svg class="inv-search-icon" width="18" height="18" viewBox="0 0 20 20" fill="none">
+      <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.5"/>
+      <path d="M13 13L17 17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <input type="text" class="inv-search-input" id="history-search"
+      placeholder="Search customer or invoice number..." oninput="filterInvoices()" />
+  </div>
+  <select class="inv-filter-select" id="history-status-filter" onchange="loadInvoiceHistory()">
+    <option value="all">All Status</option>
+    <option value="active">Active</option>
+  </select>
+  <button class="inv-btn inv-btn-secondary inv-btn-sm" onclick="loadInvoiceHistory()" title="Refresh">
+    🔄 Refresh
+  </button>
+</div>
+
+<!-- ════ TABLE (Desktop) ════ -->
+<div class="inv-card inv-table-wrapper">
+  <div style="overflow-x:auto;">
+    <table class="inv-data-table">
+      <thead>
+        <tr>
+          <th>Invoice No</th>
+          <th>Date</th>
+          <th>Customer</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="history-tbody">
+        <tr><td colspan="6" style="text-align:center;padding:40px;color:var(--gray-400);">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ════ MOBILE CARDS ════ -->
+<div class="inv-history-cards" id="history-cards"></div>
+
+<!-- ════ EMPTY STATE ════ -->
+<div class="inv-empty-state" id="history-empty" style="display:none;">
+  <div class="inv-empty-icon">📄</div>
+  <h3 class="inv-empty-title">No Invoices Yet</h3>
+  <p class="inv-empty-desc">Create your first GST invoice to get started.</p>
+  <a href="/new-invoice" class="inv-btn inv-btn-primary" style="margin-top:16px;">
+    + Create Invoice
+  </a>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let allInvoices = [];
+
+  document.addEventListener('DOMContentLoaded', () => {
+    loadInvoiceHistory();
+  });
+
+  async function loadInvoiceHistory() {
+    const phone = getPhone();
+    if (!phone) return;
+
+    const status = document.getElementById('history-status-filter').value;
+
+    try {
+      const params = new URLSearchParams({ phone });
+      if (status && status !== 'all') params.set('status', status);
+
+      const res = await fetch(`/api/invoices?${params}`);
+      const data = await res.json();
+
+      if (!data.success) throw new Error(data.error);
+
+      allInvoices = data.invoices || [];
+
+      // Update stats
+      document.getElementById('stat-total-invoices').textContent = data.summary.total_invoices;
+      document.getElementById('stat-total-amount').textContent = fmtINR(data.summary.total_amount);
+      document.getElementById('history-subtitle').textContent =
+        `${data.summary.total_invoices} invoice${data.summary.total_invoices !== 1 ? 's' : ''} generated`;
+
+      filterInvoices();
+
+    } catch (err) {
+      console.error('[History] Error:', err);
+      showToast('Could not load invoices: ' + err.message, 'error');
+      document.getElementById('history-tbody').innerHTML =
+        `<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--red);">${err.message}</td></tr>`;
+    }
+  }
+
+  function filterInvoices() {
+    const search = document.getElementById('history-search').value.toLowerCase().trim();
+    let invoices = [...allInvoices];
+
+    if (search) {
+      invoices = invoices.filter(inv =>
+        (inv.customer_name || '').toLowerCase().includes(search) ||
+        (inv.invoice_number || '').toLowerCase().includes(search)
+      );
+    }
+
+    renderInvoiceTable(invoices);
+    renderInvoiceCards(invoices);
+
+    // Empty state
+    const empty = document.getElementById('history-empty');
+    const tableWrapper = document.querySelector('.inv-table-wrapper');
+    const cards = document.getElementById('history-cards');
+
+    if (invoices.length === 0 && allInvoices.length === 0) {
+      if (empty) empty.style.display = 'block';
+      if (tableWrapper) tableWrapper.style.display = 'none';
+      if (cards) cards.style.display = 'none';
+    } else {
+      if (empty) empty.style.display = 'none';
+      if (tableWrapper) tableWrapper.style.display = '';
+      if (cards) cards.style.display = '';
+    }
+  }
+
+  function renderInvoiceTable(invoices) {
+    const tbody = document.getElementById('history-tbody');
+    if (!tbody) return;
+
+    if (invoices.length === 0 && allInvoices.length > 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--gray-400);">
+        No invoices match your search.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = invoices.map(inv => `
+      <tr onclick="window.location.href='/invoice/${esc(inv.id)}'">
+        <td style="font-weight:700;font-family:monospace;color:var(--brand-blue);">${esc(inv.invoice_number || '—')}</td>
+        <td>${fmtDate(inv.invoice_date)}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="width:30px;height:30px;border-radius:8px;background:var(--brand-blue-light);color:var(--brand-blue);
+              display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:800;text-transform:uppercase;">
+              ${esc((inv.customer_name || 'UN').slice(0, 2))}
+            </div>
+            <div>
+              <div style="font-weight:600;">${esc(inv.customer_name || '—')}</div>
+              <div style="font-size:0.72rem;color:var(--gray-400);">${esc(inv.customer_phone || '')}</div>
+            </div>
+          </div>
+        </td>
+        <td style="font-weight:700;color:var(--gray-900);">${fmtINR(inv.total_amount)}</td>
+        <td><span class="inv-status-chip ${esc(inv.status || 'active')}">${esc(inv.status || 'active')}</span></td>
+        <td>
+          <div style="display:flex;gap:6px;">
+            ${inv.pdf_url ? `<a href="${esc(inv.pdf_url)}" target="_blank" class="inv-btn inv-btn-secondary inv-btn-sm"
+              onclick="event.stopPropagation()">📥 PDF</a>` : ''}
+            <button class="inv-btn inv-btn-danger inv-btn-sm" onclick="event.stopPropagation();deleteInvoice('${esc(inv.id)}')">
+              🗑️
+            </button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  function renderInvoiceCards(invoices) {
+    const container = document.getElementById('history-cards');
+    if (!container) return;
+
+    container.innerHTML = invoices.map(inv => `
+      <div class="inv-history-card" onclick="window.location.href='/invoice/${esc(inv.id)}'">
+        <div class="inv-history-card-avatar">${esc((inv.customer_name || 'UN').slice(0, 2))}</div>
+        <div class="inv-history-card-info">
+          <div class="inv-history-card-name">${esc(inv.customer_name || '—')}</div>
+          <div class="inv-history-card-meta">${esc(inv.invoice_number || '—')} · ${fmtDate(inv.invoice_date)}</div>
+        </div>
+        <div class="inv-history-card-right">
+          <div class="inv-history-card-amount">${fmtINR(inv.total_amount)}</div>
+          <span class="inv-status-chip ${esc(inv.status || 'active')}">${esc(inv.status || 'active')}</span>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  async function deleteInvoice(invoiceId) {
+    if (!confirm('Are you sure you want to delete this invoice?')) return;
+
+    try {
+      const res = await fetch(`/api/invoice/${invoiceId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: getPhone() })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        showToast('Invoice deleted ✓', 'success');
+        loadInvoiceHistory();
+      } else {
+        showToast(data.error || 'Failed to delete', 'error');
+      }
+    } catch (e) {
+      showToast('Error: ' + e.message, 'error');
+    }
+  }
+
+  function esc(str) {
+    if (str == null) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,219 @@
+{% extends "invoices/base.html" %}
+{% block title %}Invoice Detail{% endblock %}
+
+{% block content %}
+<div class="inv-page-header">
+  <div class="header-back" style="display:flex;align-items:center;gap:12px;">
+    <a href="/invoices" class="inv-btn inv-btn-secondary inv-btn-sm" style="text-decoration:none;">
+      ← Back to History
+    </a>
+    <div>
+      <h1 class="inv-page-title" id="detail-title">Invoice Detail</h1>
+      <p class="inv-page-subtitle" id="detail-subtitle">Loading...</p>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;" id="detail-actions">
+    <!-- Populated by JS -->
+  </div>
+</div>
+
+<!-- ════ INVOICE INFO CARDS ════ -->
+<div class="inv-detail-grid" id="detail-grid">
+  <div class="inv-detail-card">
+    <div class="inv-detail-label">Invoice Number</div>
+    <div class="inv-detail-value mono" id="detail-invoice-no">—</div>
+  </div>
+  <div class="inv-detail-card">
+    <div class="inv-detail-label">Invoice Date</div>
+    <div class="inv-detail-value" id="detail-date">—</div>
+  </div>
+  <div class="inv-detail-card">
+    <div class="inv-detail-label">Customer Name</div>
+    <div class="inv-detail-value" id="detail-customer">—</div>
+  </div>
+  <div class="inv-detail-card">
+    <div class="inv-detail-label">Customer GSTIN</div>
+    <div class="inv-detail-value mono" id="detail-customer-gstin">—</div>
+  </div>
+  <div class="inv-detail-card highlight-green">
+    <div class="inv-detail-label">Grand Total</div>
+    <div class="inv-detail-value large" id="detail-total">—</div>
+  </div>
+  <div class="inv-detail-card highlight-blue">
+    <div class="inv-detail-label">Status</div>
+    <div class="inv-detail-value" id="detail-status">—</div>
+  </div>
+</div>
+
+<!-- ════ LINE ITEMS TABLE ════ -->
+<div class="inv-card">
+  <div class="inv-card-header">
+    <h2 class="inv-card-title">📦 Line Items</h2>
+    <span style="font-size:0.82rem;color:var(--gray-400);" id="detail-items-count">—</span>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="inv-data-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Item Name</th>
+          <th>HSN</th>
+          <th>Unit</th>
+          <th>Qty</th>
+          <th>Rate</th>
+          <th>Taxable</th>
+          <th>CGST</th>
+          <th>SGST</th>
+          <th>IGST</th>
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody id="detail-items-tbody">
+        <tr><td colspan="11" style="text-align:center;padding:32px;color:var(--gray-400);">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ════ TOTALS SUMMARY ════ -->
+<div class="inv-card">
+  <div class="inv-summary-card">
+    <div class="inv-summary-row">
+      <span class="inv-summary-label">Subtotal</span>
+      <span class="inv-summary-value" id="detail-subtotal">—</span>
+    </div>
+    <div class="inv-summary-row" id="detail-cgst-row">
+      <span class="inv-summary-label">CGST</span>
+      <span class="inv-summary-value" id="detail-cgst">—</span>
+    </div>
+    <div class="inv-summary-row" id="detail-sgst-row">
+      <span class="inv-summary-label">SGST</span>
+      <span class="inv-summary-value" id="detail-sgst">—</span>
+    </div>
+    <div class="inv-summary-row" id="detail-igst-row">
+      <span class="inv-summary-label">IGST</span>
+      <span class="inv-summary-value" id="detail-igst">—</span>
+    </div>
+    <div class="inv-summary-divider"></div>
+    <div class="inv-summary-row grand-total">
+      <span class="inv-summary-label">Grand Total</span>
+      <span class="inv-summary-value" id="detail-grand-total">—</span>
+    </div>
+    <div class="inv-words-row">
+      <div class="inv-words-label">Amount in Words</div>
+      <div class="inv-words-value" id="detail-words">—</div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const INVOICE_ID = "{{ invoice_id }}";
+
+  document.addEventListener('DOMContentLoaded', () => {
+    loadInvoiceDetail();
+  });
+
+  async function loadInvoiceDetail() {
+    const phone = getPhone();
+    if (!phone || !INVOICE_ID) return;
+
+    try {
+      const res = await fetch(`/api/invoice/${INVOICE_ID}?phone=${encodeURIComponent(phone)}`);
+      const data = await res.json();
+
+      if (!data.success) throw new Error(data.error);
+
+      const inv = data.invoice;
+
+      // Header
+      document.getElementById('detail-title').textContent = inv.customer_name || 'Invoice Detail';
+      document.getElementById('detail-subtitle').textContent = inv.invoice_number || '';
+
+      // Info cards
+      document.getElementById('detail-invoice-no').textContent = inv.invoice_number || '—';
+      document.getElementById('detail-date').textContent = fmtDate(inv.invoice_date);
+      document.getElementById('detail-customer').textContent = inv.customer_name || '—';
+      document.getElementById('detail-customer-gstin').textContent = inv.customer_gstin || '—';
+      document.getElementById('detail-total').textContent = fmtINR(inv.total_amount);
+      document.getElementById('detail-status').innerHTML =
+        `<span class="inv-status-chip ${inv.status || 'active'}">${inv.status || 'active'}</span>`;
+
+      // Line items
+      const items = inv.line_items || [];
+      document.getElementById('detail-items-count').textContent =
+        `${items.length} item${items.length !== 1 ? 's' : ''}`;
+
+      document.getElementById('detail-items-tbody').innerHTML = items.map((item, idx) => `
+        <tr>
+          <td style="font-weight:700;color:var(--gray-400);">${idx + 1}</td>
+          <td style="font-weight:600;">${esc(item.item_name || item.description || '—')}</td>
+          <td style="font-family:monospace;font-size:0.82rem;">${esc(item.hsn_code || item.hsn_sac || '—')}</td>
+          <td>${esc(item.unit || '—')}</td>
+          <td>${item.quantity || '—'}</td>
+          <td style="font-weight:600;">${fmtINR(item.rate)}</td>
+          <td style="font-weight:700;">${fmtINR(item.taxable_amount || item.amount)}</td>
+          <td>${fmtINR(item.cgst)}</td>
+          <td>${fmtINR(item.sgst)}</td>
+          <td>${fmtINR(item.igst)}</td>
+          <td style="font-weight:800;color:var(--brand-blue);">${fmtINR(item.total)}</td>
+        </tr>
+      `).join('');
+
+      // Totals
+      document.getElementById('detail-subtotal').textContent = fmtINR(inv.subtotal);
+      document.getElementById('detail-cgst').textContent = fmtINR(inv.cgst);
+      document.getElementById('detail-sgst').textContent = fmtINR(inv.sgst);
+      document.getElementById('detail-igst').textContent = fmtINR(inv.igst);
+      document.getElementById('detail-grand-total').textContent = fmtINR(inv.total_amount);
+      document.getElementById('detail-words').textContent = inv.amount_in_words || '—';
+
+      // Show/hide tax rows
+      const cgstVal = parseFloat(inv.cgst || 0);
+      const sgstVal = parseFloat(inv.sgst || 0);
+      const igstVal = parseFloat(inv.igst || 0);
+      document.getElementById('detail-cgst-row').style.display = cgstVal > 0 ? 'flex' : 'none';
+      document.getElementById('detail-sgst-row').style.display = sgstVal > 0 ? 'flex' : 'none';
+      document.getElementById('detail-igst-row').style.display = igstVal > 0 ? 'flex' : 'none';
+
+      // Action buttons
+      const actionsDiv = document.getElementById('detail-actions');
+      let actionsHtml = '';
+
+      if (inv.pdf_url) {
+        actionsHtml += `<a href="${esc(inv.pdf_url)}" target="_blank" class="inv-btn inv-btn-primary" style="text-decoration:none;">
+          📥 Download PDF</a>`;
+      } else {
+        actionsHtml += `<a href="/invoice/pdf/${INVOICE_ID}?phone=${encodeURIComponent(phone)}" target="_blank"
+          class="inv-btn inv-btn-primary" style="text-decoration:none;">📥 Download PDF</a>`;
+      }
+
+      if (inv.customer_phone) {
+        const cp = inv.customer_phone.replace(/[^0-9]/g, '');
+        const waPhone = cp.startsWith('91') ? cp : '91' + cp;
+        const msg = encodeURIComponent(
+          `Hello ${inv.customer_name || ''},\n\nPlease find your GST Invoice attached.\n` +
+          `Invoice No: ${inv.invoice_number}\nAmount: ${fmtINR(inv.total_amount)}\n\nRegards`
+        );
+        actionsHtml += `<a href="https://wa.me/${waPhone}?text=${msg}" target="_blank"
+          class="inv-btn inv-btn-whatsapp" style="text-decoration:none;">
+          💬 Send on WhatsApp</a>`;
+      }
+
+      actionsDiv.innerHTML = actionsHtml;
+
+    } catch (err) {
+      console.error('[Detail] Error:', err);
+      showToast('Could not load invoice: ' + err.message, 'error');
+    }
+  }
+
+  function esc(str) {
+    if (str == null) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+</script>
+{% endblock %}

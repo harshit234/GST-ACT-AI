@@ -1,0 +1,262 @@
+{% extends "invoices/base.html" %}
+{% block title %}Create Invoice{% endblock %}
+
+{% block content %}
+<div class="inv-page-header">
+  <div>
+    <h1 class="inv-page-title">📄 Create New Invoice</h1>
+    <p class="inv-page-subtitle">Generate a GST-compliant customer invoice</p>
+  </div>
+</div>
+
+<!-- ════ MERCHANT DETAILS ════ -->
+<div class="inv-card">
+  <div class="inv-card-header">
+    <h2 class="inv-card-title">
+      <span class="inv-card-icon blue">🏢</span>
+      Your Business Details
+    </h2>
+  </div>
+  <div class="inv-form-grid">
+    <div class="inv-form-group">
+      <label class="inv-form-label" for="merchant-name">Business Name *</label>
+      <input type="text" class="inv-form-input" id="merchant-name" placeholder="Your business name" />
+    </div>
+    <div class="inv-form-group">
+      <label class="inv-form-label" for="merchant-gstin">GSTIN *</label>
+      <input type="text" class="inv-form-input" id="merchant-gstin" placeholder="22AAAAA0000A1Z5" maxlength="15"
+        style="text-transform:uppercase;" />
+    </div>
+    <div class="inv-form-group">
+      <label class="inv-form-label" for="merchant-phone">Phone</label>
+      <input type="tel" class="inv-form-input" id="merchant-phone" placeholder="+91 98765 43210" />
+    </div>
+    <div class="inv-form-group">
+      <label class="inv-form-label" for="merchant-email">Email</label>
+      <input type="email" class="inv-form-input" id="merchant-email" placeholder="business@example.com" />
+    </div>
+    <div class="inv-form-group">
+      <label class="inv-form-label" for="merchant-state">State</label>
+      <select class="inv-form-select" id="merchant-state">
+        <option value="">— Select State —</option>
+        {% for code, name in state_codes.items() %}
+        <option value="{{ name }}">{{ code }} — {{ name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="inv-form-group full-width">
+      <label class="inv-form-label" for="merchant-address">Address</label>
+      <textarea class="inv-form-textarea" id="merchant-address" placeholder="Business address"
+        rows="2"></textarea>
+    </div>
+  </div>
+</div>
+
+<!-- ════ CUSTOMER DETAILS ════ -->
+<div class="inv-card">
+  <div class="inv-card-header">
+    <h2 class="inv-card-title">
+      <span class="inv-card-icon green">👤</span>
+      Customer Details
+    </h2>
+  </div>
+  <div class="inv-form-grid">
+    <div class="inv-form-group">
+      <label class="inv-form-label" for="customer-name">Customer Name *</label>
+      <input type="text" class="inv-form-input" id="customer-name" placeholder="Customer name" required />
+    </div>
+    <div class="inv-form-group">
+      <label class="inv-form-label" for="customer-gstin">GSTIN</label>
+      <input type="text" class="inv-form-input" id="customer-gstin" placeholder="22BBBBB0000B1Z5" maxlength="15"
+        style="text-transform:uppercase;" />
+      <span class="inv-form-hint">Leave blank for B2C invoices</span>
+    </div>
+    <div class="inv-form-group">
+      <label class="inv-form-label" for="customer-phone">Mobile Number</label>
+      <input type="tel" class="inv-form-input" id="customer-phone" placeholder="98765 43210" />
+    </div>
+    <div class="inv-form-group">
+      <label class="inv-form-label" for="customer-email">Email (Optional)</label>
+      <input type="email" class="inv-form-input" id="customer-email" placeholder="customer@example.com" />
+    </div>
+    <div class="inv-form-group">
+      <label class="inv-form-label" for="customer-state">State *</label>
+      <select class="inv-form-select" id="customer-state">
+        <option value="">— Select State —</option>
+        {% for code, name in state_codes.items() %}
+        <option value="{{ name }}">{{ code }} — {{ name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="inv-form-group full-width">
+      <label class="inv-form-label" for="customer-address">Address</label>
+      <textarea class="inv-form-textarea" id="customer-address" placeholder="Customer address" rows="2"></textarea>
+    </div>
+  </div>
+</div>
+
+<!-- ════ INVOICE DETAILS ════ -->
+<div class="inv-card">
+  <div class="inv-card-header">
+    <h2 class="inv-card-title">
+      <span class="inv-card-icon amber">📋</span>
+      Invoice Details
+    </h2>
+  </div>
+  <div class="inv-form-grid">
+    <div class="inv-form-group">
+      <label class="inv-form-label" for="invoice-number">Invoice Number</label>
+      <input type="text" class="inv-form-input" id="invoice-number" placeholder="INV/2026-27/001"
+        style="font-family:monospace;font-weight:700;" />
+      <span class="inv-form-hint">Auto-generated. You can edit if needed.</span>
+    </div>
+    <div class="inv-form-group">
+      <label class="inv-form-label" for="invoice-date">Invoice Date</label>
+      <input type="date" class="inv-form-input" id="invoice-date" />
+    </div>
+  </div>
+</div>
+
+<!-- ════ LINE ITEMS ════ -->
+<div class="inv-card">
+  <div class="inv-card-header">
+    <h2 class="inv-card-title">
+      <span class="inv-card-icon blue">📦</span>
+      Line Items
+    </h2>
+    <span style="font-size:0.75rem;color:var(--gray-400);font-style:italic;">
+      💡 Type an item name — HSN & GST rate auto-fill via AI
+    </span>
+  </div>
+
+  <div class="inv-items-wrapper">
+    <table class="inv-items-table">
+      <thead>
+        <tr>
+          <th style="width:40px;">#</th>
+          <th>Item Name</th>
+          <th>HSN</th>
+          <th>Unit</th>
+          <th>Qty</th>
+          <th>Rate (₹)</th>
+          <th>GST %</th>
+          <th>Taxable</th>
+          <th>CGST</th>
+          <th>SGST</th>
+          <th>IGST</th>
+          <th>Total</th>
+          <th style="width:40px;"></th>
+        </tr>
+      </thead>
+      <tbody id="items-tbody">
+        <!-- Dynamic rows added by JS -->
+      </tbody>
+    </table>
+  </div>
+
+  <div class="inv-add-item-row">
+    <button type="button" class="inv-btn-add-item" onclick="addLineItem()">
+      + Add Item
+    </button>
+  </div>
+</div>
+
+<!-- ════ INVOICE SUMMARY ════ -->
+<div class="inv-card">
+  <div class="inv-card-header">
+    <h2 class="inv-card-title">
+      <span class="inv-card-icon green">💰</span>
+      Invoice Summary
+    </h2>
+  </div>
+
+  <div class="inv-summary-card">
+    <div class="inv-summary-row">
+      <span class="inv-summary-label">Subtotal (Taxable Value)</span>
+      <span class="inv-summary-value" id="summary-subtotal">₹0.00</span>
+    </div>
+    <div class="inv-summary-row" id="summary-cgst-row">
+      <span class="inv-summary-label">Total CGST</span>
+      <span class="inv-summary-value" id="summary-cgst">₹0.00</span>
+    </div>
+    <div class="inv-summary-row" id="summary-sgst-row">
+      <span class="inv-summary-label">Total SGST</span>
+      <span class="inv-summary-value" id="summary-sgst">₹0.00</span>
+    </div>
+    <div class="inv-summary-row" id="summary-igst-row" style="display:none;">
+      <span class="inv-summary-label">Total IGST</span>
+      <span class="inv-summary-value" id="summary-igst">₹0.00</span>
+    </div>
+    <div class="inv-summary-divider"></div>
+    <div class="inv-summary-row grand-total">
+      <span class="inv-summary-label">Grand Total</span>
+      <span class="inv-summary-value" id="summary-grand-total">₹0.00</span>
+    </div>
+    <div class="inv-words-row">
+      <div class="inv-words-label">Amount in Words</div>
+      <div class="inv-words-value" id="summary-words">Zero Rupees Only</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ ACTION BUTTONS ════ -->
+<div class="inv-actions-bar">
+  <button type="button" class="inv-btn inv-btn-secondary" onclick="window.location.reload()">
+    🔄 Reset Form
+  </button>
+  <button type="button" class="inv-btn inv-btn-primary" id="btn-submit" onclick="submitInvoice()">
+    📄 Generate Invoice
+  </button>
+</div>
+
+<!-- ════ LOADING OVERLAY ════ -->
+<div class="inv-loading-overlay" id="loading-overlay">
+  <div class="inv-loading-spinner"></div>
+  <div class="inv-loading-text">Generating invoice & PDF...</div>
+</div>
+
+<!-- ════ SUCCESS MODAL ════ -->
+<div class="inv-modal-overlay" id="success-modal">
+  <div class="inv-modal">
+    <div class="inv-modal-icon">✅</div>
+    <h2 class="inv-modal-title">Invoice Created!</h2>
+    <p class="inv-modal-subtitle">Your GST invoice has been generated successfully.</p>
+
+    <div class="inv-modal-details">
+      <div class="inv-modal-detail-row">
+        <span class="inv-modal-detail-label">Invoice No</span>
+        <span class="inv-modal-detail-value" id="modal-invoice-number">—</span>
+      </div>
+      <div class="inv-modal-detail-row">
+        <span class="inv-modal-detail-label">Customer</span>
+        <span class="inv-modal-detail-value" id="modal-customer-name">—</span>
+      </div>
+      <div class="inv-modal-detail-row">
+        <span class="inv-modal-detail-label">Amount</span>
+        <span class="inv-modal-detail-value" id="modal-grand-total">—</span>
+      </div>
+    </div>
+
+    <div class="inv-modal-actions">
+      <button class="inv-btn inv-btn-primary" id="modal-btn-pdf" style="width:100%;justify-content:center;">
+        📥 Download PDF
+      </button>
+      <button class="inv-btn inv-btn-whatsapp" id="modal-btn-whatsapp" style="width:100%;justify-content:center;display:none;">
+        <svg width="18" height="18" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="16" fill="white" fill-opacity="0.25"/><path d="M22.5 19.5C22.2 20.3 21 21.5 20 21.7C19 21.9 17.6 21.9 13.5 20.2C10.4 18.8 8.5 16 8.3 15.7C8.1 15.4 6.8 13.6 6.8 11.7C6.8 9.8 7.7 8.9 8.1 8.5C8.5 8.1 9 8 9.2 8H10.5C10.8 8 11 8.2 11.2 8.5C11.6 9.2 12.5 11.1 12.6 11.3C12.7 11.5 12.7 11.8 12.5 12C12.3 12.3 12.2 12.4 12 12.7C11.8 12.9 11.6 13.2 11.8 13.5C12 13.8 12.9 15.1 14.1 16.2C15.6 17.5 16.9 17.9 17.2 18.1C17.5 18.3 17.8 18.2 18 18C18.3 17.7 18.9 17 19.1 16.7C19.3 16.4 19.6 16.4 19.9 16.5C20.2 16.6 22.1 17.6 22.4 17.8C22.7 18 22.9 18.1 22.9 18.3C23 18.6 22.8 19.2 22.5 19.5Z" fill="white"/></svg>
+        Send on WhatsApp
+      </button>
+      <button class="inv-btn inv-btn-secondary" id="modal-btn-view" style="width:100%;justify-content:center;">
+        👁️ View Invoice
+      </button>
+      <button class="inv-btn inv-btn-success" onclick="createNewInvoice()" style="width:100%;justify-content:center;">
+        ➕ Create Another Invoice
+      </button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('invoices.static', filename='js/invoice.js') }}"></script>
+{% endblock %}

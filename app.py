@@ -33,13 +33,16 @@ from twilio.twiml.messaging_response import MessagingResponse
 from ocr import detect_text
 from extract import extract_invoice_details
 from validate import validate_gst_invoice, validate_invoice_date
-from db import save_invoice, get_monthly_summary, get_supabase_client
+from db import save_invoice, get_monthly_summary, get_supabase_client, save_pending_bill, get_pending_bill, delete_pending_bill
 from exceptions import BlurryImageError, NotAnInvoiceError, DuplicateInvoiceError, LowConfidenceError, SuspiciousDateError
 
 load_dotenv()
 
 # ─── Flask app — serve dashboard as static files ────────────────────────────
 app = Flask(__name__, static_folder="dashboard", static_url_path="/dashboard")
+
+from invoices import invoices_bp
+app.register_blueprint(invoices_bp)
 
 try:
     from flask_cors import CORS
@@ -78,6 +81,14 @@ PENDING_TTL = 600  # 10 minutes
 # ════════════════════════════════════════════════════════════════
 # HELPERS
 # ════════════════════════════════════════════════════════════════
+
+def format_db_error(e: Exception) -> str:
+    """Returns a user-friendly error message for database connection issues."""
+    msg = str(e)
+    if "getaddrinfo failed" in msg or "ConnectError" in msg or "gaierror" in msg:
+        return "Database connection failed: Unable to reach Supabase. Please check if your Supabase project is active/unpaused or update SUPABASE_URL in .env."
+    return msg
+
 
 def fmt_inr(val) -> str:
     """Format numeric value as Indian comma-separated string (e.g. 1243709 → '12,43,709')."""
@@ -182,52 +193,71 @@ def process_bill_in_background(whatsapp_number: str, media_url: str, wa_from: st
     print(f"[bg] Processing bill for {whatsapp_number}")
     invoice_data = {}
     try:
-        image_bytes  = download_media(media_url)
-        ocr_text     = detect_text(image_bytes)
-        invoice_data = extract_invoice_details(ocr_text)
-        is_valid, _  = validate_gst_invoice(invoice_data)
+        image_bytes   = download_media(media_url)
+        ocr_text      = detect_text(image_bytes)
+        invoice_data  = extract_invoice_details(ocr_text)
+        _, calc_total, diff = validate_gst_invoice(invoice_data)
         validate_invoice_date(invoice_data)  # Raises SuspiciousDateError if date is off
-        bill_id      = save_invoice(invoice_data, whatsapp_number)
 
         vendor = invoice_data.get("vendor_name",    "N/A")
         inv_no = invoice_data.get("invoice_number", "N/A")
         inv_dt = invoice_data.get("invoice_date",   "N/A")
         items  = invoice_data.get("line_items", [])
-        total  = invoice_data.get("total_amount", 0)
-        cgst   = invoice_data.get("cgst", 0)
-        sgst   = invoice_data.get("sgst", 0)
-        igst   = invoice_data.get("igst", 0)
+        total  = float(invoice_data.get("total_amount") or 0)
+
+        # ── Math-validation gate ──────────────────────────────────────
+        # If our calculated total differs from the bill total by more than
+        # Rs.500, hold the bill and ask the merchant to confirm.
+        # Rs.500 allows for freight, packing, rounding differences on
+        # real-world invoices without triggering a false mismatch alert.
+        VALIDATION_THRESHOLD = 500.0
+        if diff > VALIDATION_THRESHOLD:
+            save_pending_bill(
+                whatsapp_number=whatsapp_number,
+                invoice_data=invoice_data,
+                wa_from=wa_from,
+                bill_total=total,
+                calculated_total=calc_total,
+                difference=diff,
+            )
+            reply = (
+                f"\u26a0\ufe0f Total Mismatch — Confirm Required\n\n"
+                f"\U0001f3ea Vendor  : {vendor}\n"
+                f"\U0001f4c4 Invoice : {inv_no}\n"
+                f"\U0001f4c5 Date    : {inv_dt}\n\n"
+                f"\U0001f4b0 Bill Total (from image) : Rs.{fmt_inr(total)}\n"
+                f"\U0001f9ee Our Calculated Total   : Rs.{fmt_inr(calc_total)}\n"
+                f"\U0001f4ca Difference             : Rs.{fmt_inr(diff)}\n\n"
+                f"This may be due to freight, packing or rounding charges.\n\n"
+                f"Reply:\n"
+                f"  *1* — Confirm and save this bill\n"
+                f"  *2* — Discard and send a clearer photo"
+            )
+            send_whatsapp(whatsapp_number, reply, wa_from)
+            print(f"[bg] Validation mismatch Rs.{diff:.2f} — pending confirmation for {whatsapp_number}")
+            return
+        # ── End math-validation gate ──────────────────────────────────
+
+        bill_id = save_invoice(invoice_data, whatsapp_number)
+
+        cgst = invoice_data.get("cgst", 0)
+        sgst = invoice_data.get("sgst", 0)
+        igst = invoice_data.get("igst", 0)
         dashboard_url = os.getenv("DASHBOARD_URL", "")
 
-        # Calculate mathematical totals for the merchant review block
-        calculated_subtotal = 0.0
-        for item in items:
-            item_amount = item.get("amount")
-            if item_amount is not None:
-                try:
-                    calculated_subtotal += float(item_amount)
-                except ValueError:
-                    pass
-
-        tax_total = float(cgst or 0.0) + float(sgst or 0.0) + float(igst or 0.0)
-        calculated_total = calculated_subtotal + tax_total
-        difference = abs(calculated_total - float(total or 0.0))
-
         reply = (
-            f"**Bill Processed ✅**\n\n"
-            f"🏪 Vendor     : {vendor}\n"
-            f"📄 Invoice No : {inv_no}\n"
-            f"📅 Date       : {inv_dt}\n"
-            f"📦 Items      : {len(items)}\n\n"
-            f"Invoice Total: ₹{fmt_inr(total)}\n"
-            f"Calculated Total: ₹{fmt_inr(calculated_total)}\n"
-            f"Difference: ₹{fmt_inr(difference)}\n\n"
-            f"Please verify the total amount on the bill.\n\n"
-            f"* ✅ Confirm Invoice Total\n"
-            f"* ❌ Review Bill\n\n"
-            f"🆔 Bill ID: {bill_id}"
-            + (f"\n\n📊 View dashboard: {dashboard_url}" if dashboard_url else "")
+            f"**Bill Processed \u2705**\n\n"
+            f"\U0001f3ea Vendor     : {vendor}\n"
+            f"\U0001f4c4 Invoice No : {inv_no}\n"
+            f"\U0001f4c5 Date       : {inv_dt}\n"
+            f"\U0001f4e6 Items      : {len(items)}\n\n"
+            f"Invoice Total    : Rs.{fmt_inr(total)}\n"
+            f"Calculated Total : Rs.{fmt_inr(calc_total)}\n"
+            f"Difference       : Rs.{fmt_inr(diff)}\n\n"
+            f"\U0001f194 Bill ID: {bill_id}"
+            + (f"\n\n\U0001f4ca View dashboard: {dashboard_url}" if dashboard_url else "")
         )
+
 
         # Chunked item-wise GST details
         if items:
@@ -286,8 +316,10 @@ def process_bill_in_background(whatsapp_number: str, media_url: str, wa_from: st
         reply = (
             f"ℹ️ Duplicate Invoice\n\n"
             f"🏪 {invoice_data.get('vendor_name', 'N/A')}\n"
-            f"📄 {invoice_data.get('invoice_number', 'N/A')}\n\n"
-            f"Existing Bill ID: {dup.existing_bill_id}"
+            f"📄 {invoice_data.get('invoice_number', 'N/A')}\n"
+            f"📅 Originally saved on: {dup.existing_invoice_date}\n\n"
+            f"This bill was already recorded.\n"
+            f"🆔 Existing Bill ID: {dup.existing_bill_id}"
         )
     except Exception as e:
         print(f"[bg] ERROR: {e}", file=sys.stderr)
@@ -395,6 +427,7 @@ def api_get_bills():
             .select("id, vendor_name, vendor_gstin, invoice_number, invoice_date, "
                     "cgst, sgst, igst, total_amount, line_items, created_at")
             .eq("whatsapp_number", phone)
+            .eq("bill_type", "purchase")
             .order("created_at", desc=True)
         )
         if month:
@@ -448,6 +481,7 @@ def api_get_bill(bill_id):
             client.table("bills")
             .select("*")
             .eq("id", bill_id)
+            .eq("bill_type", "purchase")
             .execute()
         )
         bills = result.data or []
@@ -494,6 +528,7 @@ def api_get_summary():
             client.table("bills")
             .select("cgst, sgst, igst, total_amount, created_at")
             .eq("whatsapp_number", phone)
+            .eq("bill_type", "purchase")
             .gte("created_at", range_start)
             .execute()
         )
@@ -595,6 +630,66 @@ def webhook():
     whatsapp_number = from_raw.replace("whatsapp:", "").strip()
     print(f"[webhook] From={whatsapp_number}, NumMedia={num_media}, Body='{request.form.get('Body', '')}'")
 
+    # ── Reply 1: Confirm pending bill (math-validation) ───────────
+    if body_text == "1":
+        pending = get_pending_bill(whatsapp_number)
+        if not pending:
+            # No pending bill — ignore silently (could be a reply to something else)
+            return twiml_ack("")
+
+        wa_from      = pending.get("wa_from", TWILIO_WHATSAPP_FROM)
+        invoice_data = pending["invoice_data"]
+
+        def confirm_pending_bill():
+            try:
+                delete_pending_bill(whatsapp_number)
+                bill_id = save_invoice(invoice_data, whatsapp_number)
+                vendor  = invoice_data.get("vendor_name", "N/A")
+                inv_no  = invoice_data.get("invoice_number", "N/A")
+                inv_dt  = invoice_data.get("invoice_date", "N/A")
+                total   = invoice_data.get("total_amount", 0)
+                reply = (
+                    f"\u2705 Bill Confirmed and Saved\n\n"
+                    f"\U0001f3ea Vendor  : {vendor}\n"
+                    f"\U0001f4c4 Invoice : {inv_no}\n"
+                    f"\U0001f4c5 Date    : {inv_dt}\n"
+                    f"\U0001f4b0 Total   : Rs.{fmt_inr(total)}\n\n"
+                    f"\U0001f194 Bill ID: {bill_id}"
+                )
+            except DuplicateInvoiceError as dup:
+                reply = (
+                    f"\u2139\ufe0f Duplicate Invoice\n\n"
+                    f"\U0001f4c5 Originally saved on: {dup.existing_invoice_date}\n"
+                    f"\U0001f194 Existing Bill ID: {dup.existing_bill_id}"
+                )
+            except Exception as e:
+                reply = f"\u274c Could not save bill.\nError: {str(e)[:200]}"
+            send_whatsapp(whatsapp_number, reply, wa_from)
+
+        threading.Thread(target=confirm_pending_bill, daemon=True).start()
+        return twiml_ack("\u23f3 Saving your confirmed bill...")
+
+    # ── Reply 2: Discard pending bill (math-validation) ───────────
+    if body_text == "2":
+        pending = get_pending_bill(whatsapp_number)
+        if not pending:
+            return twiml_ack("")
+
+        wa_from = pending.get("wa_from", TWILIO_WHATSAPP_FROM)
+        delete_pending_bill(whatsapp_number)
+        send_whatsapp(
+            whatsapp_number,
+            (
+                "\U0001f4f7 Please send a clearer photo of the bill.\n\n"
+                "Tips for a better scan:\n"
+                "  - Good lighting, no shadows\n"
+                "  - Full bill visible in frame\n"
+                "  - Hold camera steady"
+            ),
+            wa_from,
+        )
+        return twiml_ack("")
+
     # ── CONFIRM DATE command (human-in-the-loop date validation) ──
     if body_text == "CONFIRM DATE":
         pending = _pending_bills.pop(whatsapp_number, None)
@@ -629,7 +724,8 @@ def webhook():
             except DuplicateInvoiceError as dup:
                 reply = (
                     f"ℹ️ Duplicate Invoice\n\n"
-                    f"Existing Bill ID: {dup.existing_bill_id}"
+                    f"📅 Originally saved on: {dup.existing_invoice_date}\n"
+                    f"🆔 Existing Bill ID: {dup.existing_bill_id}"
                 )
             except Exception as e:
                 reply = f"❌ Could not save bill.\nError: {str(e)[:200]}"

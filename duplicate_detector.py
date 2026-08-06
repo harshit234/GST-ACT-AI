@@ -1,15 +1,15 @@
 """
-duplicate_detector.py — Fuzzy Duplicate Invoice Detection
+duplicate_detector.py -- Fuzzy Duplicate Invoice Detection
 =========================================================
 Detects duplicate invoices even when OCR introduces character-level
 errors (e.g. GSTIN "P" misread as "F").
 
-Instead of relying on exact GSTIN matching, compares three signals:
-  1. Invoice Number  — normalized exact match
-  2. Invoice Amount  — match within ₹1 tolerance
-  3. Vendor Name     — difflib similarity > 80%
+Matching rules (ALL three must pass):
+  1. Invoice Number  -- normalized exact match (strips slashes/dashes/spaces)
+  2. Total Amount    -- exact match (no tolerance)
+  3. Vendor Name     -- difflib similarity > 80%
 
-If ALL three match, the invoice is flagged as a potential duplicate.
+If all three match, returns (existing_bill_id, existing_invoice_date).
 """
 
 import re
@@ -43,9 +43,9 @@ def vendor_name_similarity(name_a: str, name_b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
-def amounts_match(amount_a: float, amount_b: float, tolerance: float = 1.0) -> bool:
-    """Returns True if two amounts are within the given tolerance (default ₹1)."""
-    return abs(amount_a - amount_b) <= tolerance
+def amounts_match_exact(amount_a: float, amount_b: float) -> bool:
+    """Returns True only when two amounts are exactly equal."""
+    return amount_a == amount_b
 
 
 # ── Main detector ────────────────────────────────────────────────
@@ -59,16 +59,17 @@ def check_fuzzy_duplicate(
     total_amount: float,
     vendor_name: str,
     whatsapp_number: str,
-) -> str | None:
+) -> tuple[str, str] | None:
     """
     Checks whether a new invoice is a fuzzy duplicate of an existing one.
 
     Queries all bills for the same whatsapp_number (merchant) and compares:
-      • Normalized invoice number  (exact match)
-      • Total amount               (within ₹1)
-      • Vendor name                (>80% similarity)
+      * Normalized invoice number  (exact match after stripping punctuation)
+      * Total amount               (exact match)
+      * Vendor name                (>80% difflib similarity)
 
-    Returns the existing bill ID if a fuzzy duplicate is found, else None.
+    Returns a (bill_id, invoice_date) tuple if a fuzzy duplicate is found,
+    or None if no duplicate exists.
     """
     if not invoice_number:
         return None
@@ -80,37 +81,39 @@ def check_fuzzy_duplicate(
     # Fetch candidate bills for this merchant
     existing_bills = (
         client.table("bills")
-        .select("id, invoice_number, total_amount, vendor_name")
+        .select("id, invoice_number, invoice_date, total_amount, vendor_name")
         .eq("whatsapp_number", whatsapp_number)
+        .eq("bill_type", "purchase")
         .execute()
     )
 
     for existing in (existing_bills.data or []):
-        # Signal 1: Invoice number must match (normalized)
+        # Signal 1: Invoice number must match (normalized exact)
         existing_inv = normalize_invoice_number(existing.get("invoice_number", ""))
         if existing_inv != normalized_new:
             continue
 
-        # Signal 2: Total amount must match (within tolerance)
+        # Signal 2: Total amount must match exactly
         existing_amount = float(existing.get("total_amount") or 0)
-        if not amounts_match(total_amount, existing_amount):
+        if not amounts_match_exact(total_amount, existing_amount):
             continue
 
-        # Signal 3: Vendor name must be sufficiently similar
+        # Signal 3: Vendor name must be sufficiently similar (>80%)
         existing_vendor = existing.get("vendor_name", "")
         similarity = vendor_name_similarity(vendor_name, existing_vendor)
         if similarity < VENDOR_NAME_THRESHOLD:
             continue
 
-        # All three signals match — this is a fuzzy duplicate
-        existing_id = existing["id"]
+        # All three signals match -- this is a fuzzy duplicate
+        existing_id   = existing["id"]
+        existing_date = existing.get("invoice_date") or "N/A"
         print(
             f"Fuzzy duplicate detected: "
             f"invoice={invoice_number}, "
             f"vendor similarity={similarity:.0%}, "
-            f"amount diff=₹{abs(total_amount - existing_amount):.2f}. "
-            f"Existing Bill ID: {existing_id}"
+            f"amount=Rs.{existing_amount}. "
+            f"Existing Bill ID: {existing_id} (date: {existing_date})"
         )
-        return existing_id
+        return existing_id, existing_date
 
     return None

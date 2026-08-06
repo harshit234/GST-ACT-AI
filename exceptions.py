@@ -28,12 +28,21 @@ class NotAnInvoiceError(Exception):
 
 class DuplicateInvoiceError(Exception):
     """
-    Raised when an invoice with the same vendor_gstin + invoice_number
-    already exists in the bills table.
+    Raised when an invoice matches an existing bill via fuzzy logic:
+      - Invoice number: normalized exact match
+      - Total amount:   exact match
+      - Vendor name:    >80% difflib similarity
+
+    Carries the existing bill's ID and original invoice date so callers
+    can inform the user when the bill was first saved.
     """
-    def __init__(self, existing_bill_id: str):
-        self.existing_bill_id = existing_bill_id
-        super().__init__(f"Invoice already exists with ID: {existing_bill_id}")
+    def __init__(self, existing_bill_id: str, existing_invoice_date: str = "N/A"):
+        self.existing_bill_id     = existing_bill_id
+        self.existing_invoice_date = existing_invoice_date
+        super().__init__(
+            f"Invoice already exists with ID: {existing_bill_id} "
+            f"(date: {existing_invoice_date})"
+        )
 
 
 class LowConfidenceError(Exception):
